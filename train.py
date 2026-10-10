@@ -87,10 +87,19 @@ class Trainer:
         self.batch_size = batch_size
         self.feat_interp = feat_interp
         self.feat_interp_alpha = feat_interp_alpha
-        self.feat_interp_ratio = feat_interp_ratio
+        # Ánh xạ chuẩn xác tên package Python và tên thư mục dữ liệu/ckpt
+        if train_dataset in ["sd_v1_4", "sd-v1_4"]:
+            pkg_name = "sd_v1_4"   # Tên thư mục code trong detectors/
+            dir_name = "sd-v1_4"   # Tên thư mục trong data/train/ và ckpt/
+        else:
+            pkg_name = train_dataset
+            dir_name = train_dataset
 
-        # Nạp động module tương ứng với bộ dataset ('progan' hoặc 'sd-v1_4')
-        detector_module = importlib.import_module(f"detectors.{train_dataset}")
+        self.pkg_name = pkg_name
+        self.dir_name = dir_name
+
+        # Nạp động module tương ứng với bộ dataset ('progan' hoặc 'sd_v1_4')
+        detector_module = importlib.import_module(f"detectors.{pkg_name}")
 
         # Khởi tạo mô hình dựa theo chế độ train (mode)
         if self.mode == "branch":
@@ -104,16 +113,17 @@ class Trainer:
                 raise ValueError(f"Unknown detector: {self.branch}")
         elif self.mode == "fusion":
             # Chế độ Fusion yêu cầu phải có sẵn trọng số đã train xong của 2 nhánh con
-            semantic_weights_path = os.path.join(self.ckpt, self.train_dataset, "semantic", "best_model.pth")
-            artifact_weights_path = os.path.join(self.ckpt, self.train_dataset, "artifact", "best_model.pth")
+            c_dir = os.path.join(self.ckpt, dir_name) if os.path.exists(os.path.join(self.ckpt, dir_name)) else os.path.join(self.ckpt, train_dataset)
+            semantic_weights_path = os.path.join(c_dir, "semantic", "best_model.pth")
+            artifact_weights_path = os.path.join(c_dir, "artifact", "best_model.pth")
             if not os.path.exists(semantic_weights_path) or not os.path.exists(artifact_weights_path):
-                raise ValueError("Semantic or Artifact weights path does not exist for fusion mode")
+                raise ValueError(f"Semantic or Artifact weights path does not exist for fusion mode. Looked in: {semantic_weights_path}, {artifact_weights_path}")
             CoSpyFusionDetector = getattr(detector_module, "CoSpyFusionDetector")
             self.model = CoSpyFusionDetector(
                 semantic_weights_path=semantic_weights_path,
                 artifact_weights_path=artifact_weights_path)
-            self.weight_init = 0.5 if self.train_dataset == "sd-v1_4" else 0.0
-            self.bias_floor = 2.0 if self.train_dataset == "sd-v1_4" else 0.0
+            self.weight_init = 0.5 if dir_name == "sd-v1_4" else 0.0
+            self.bias_floor = 2.0 if dir_name == "sd-v1_4" else 0.0
         elif self.mode == "end2end":
             End2EndDetector = getattr(detector_module, "End2EndDetector")
             self.model = End2EndDetector()

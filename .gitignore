@@ -10,3 +10,4 @@ data/train/sd-v1_4/stable-diffusion-v1-4
 pretrained/progan
 pretrained/sd-v1_4
 imgs**
+.vscode**

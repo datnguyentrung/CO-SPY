@@ -49,6 +49,7 @@ class SemanticDetector(BaseDetector):
         # Tải mô hình OpenCLIP pretrained (SigLIP ViT-SO400M-14, resolution 384x384)
         model_name = "ViT-SO400M-14-SigLIP-384"
         version = "webli"
+        self.clip = open_clip.CLIP
         self.clip, _, _ = open_clip.create_model_and_transforms(
             model_name, pretrained=version
         )

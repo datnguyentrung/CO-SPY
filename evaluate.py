@@ -75,8 +75,19 @@ class Detector:
         self.ckpt = ckpt
         self.batch_size = batch_size
 
-        # Nạp động module kiến trúc mô hình (progan hoặc sd-v1_4)
-        detector_module = importlib.import_module(f"detectors.{train_dataset}")
+        # Ánh xạ chuẩn xác tên package Python và tên thư mục dữ liệu/weights
+        if train_dataset in ["sd_v1_4", "sd-v1_4"]:
+            pkg_name = "sd_v1_4"   # Tên thư mục code trong detectors/
+            dir_name = "sd-v1_4"   # Tên thư mục trong pretrained/, data/
+        else:
+            pkg_name = train_dataset
+            dir_name = train_dataset
+
+        self.pkg_name = pkg_name
+        self.dir_name = dir_name
+
+        # Nạp động module kiến trúc mô hình (progan hoặc sd_v1_4)
+        detector_module = importlib.import_module(f"detectors.{pkg_name}")
 
         # Khởi tạo mô hình và nạp trọng số tùy theo chế độ (mode)
         if self.mode == "branch":
@@ -89,23 +100,25 @@ class Detector:
             self.model = DetectorClass()
             # Chọn đường dẫn trọng số: pretrained của tác giả hoặc best_model trong ckpt
             if pretrain:
-                weights_path = f"pretrained/{self.train_dataset}/{self.branch}_weights.pth"
+                weights_path = f"pretrained/{dir_name}/{self.branch}_weights.pth"
             else:
-                weights_path = os.path.join(self.ckpt, self.train_dataset, self.branch, "best_model.pth")
+                weights_path = os.path.join(self.ckpt, dir_name, self.branch, "best_model.pth")
             if not os.path.exists(weights_path):
                 raise ValueError(f"{self.branch} weights path does not exist: {weights_path}")
             self.model.load_weights(weights_path)
         elif self.mode == "fusion":
             if pretrain:
-                semantic_weights_path = f"pretrained/{self.train_dataset}/semantic_weights.pth"
-                artifact_weights_path = f"pretrained/{self.train_dataset}/artifact_weights.pth"
-                fusion_weights_path = f"pretrained/{self.train_dataset}/fusion_weights.pth"
+                p_dir = f"pretrained/{dir_name}"
+                semantic_weights_path = os.path.join(p_dir, "semantic_weights.pth")
+                artifact_weights_path = os.path.join(p_dir, "artifact_weights.pth")
+                fusion_weights_path = os.path.join(p_dir, "fusion_weights.pth")
             else:
-                semantic_weights_path = os.path.join(self.ckpt, self.train_dataset, "semantic", "best_model.pth")
-                artifact_weights_path = os.path.join(self.ckpt, self.train_dataset, "artifact", "best_model.pth")
-                fusion_weights_path = os.path.join(self.ckpt, self.train_dataset, "fusion", "best_model.pth")
+                c_dir = os.path.join(self.ckpt, dir_name)
+                semantic_weights_path = os.path.join(c_dir, "semantic", "best_model.pth")
+                artifact_weights_path = os.path.join(c_dir, "artifact", "best_model.pth")
+                fusion_weights_path = os.path.join(c_dir, "fusion", "best_model.pth")
             if not os.path.exists(semantic_weights_path) or not os.path.exists(artifact_weights_path) or not os.path.exists(fusion_weights_path):
-                raise ValueError("Semantic, Artifact or Fusion weights path does not exist for fusion mode")
+                raise ValueError(f"Semantic, Artifact or Fusion weights path does not exist for fusion mode. Looked in: {semantic_weights_path}, {artifact_weights_path}, {fusion_weights_path}")
             CoSpyFusionDetector = getattr(detector_module, "CoSpyFusionDetector")
             self.model = CoSpyFusionDetector(
                 semantic_weights_path=semantic_weights_path,
@@ -139,12 +152,12 @@ class Detector:
     # -------------------------------------------------------------------------
     def evaluate_benchmark(self):
         # Chọn bộ benchmark tương ứng với dataset
-        if self.train_dataset == "progan":
+        if self.dir_name == "progan":
             benchmark_name = "AIGCDetectionBenchMark"
             TestDataset = AIGCDetectTestDataset
             eval_dataset_list = AIGCDetectionBenchMark_DATASET_LIST
             eval_model_list = AIGCDetectionBenchMark_MODEL_LIST
-        elif self.train_dataset == "sd-v1_4":
+        elif self.dir_name == "sd-v1_4":
             benchmark_name = "Co-Spy-Bench"
             TestDataset = CoSpyBenchTestDataset
             eval_dataset_list = CoSpyBench_DATASET_LIST
@@ -155,9 +168,9 @@ class Detector:
         # Tạo thư mục lưu kết quả đánh giá
         subdir = self.branch if self.mode == "branch" else self.mode
         if self.pretrain:
-            save_dir = os.path.join(self.ckpt, self.train_dataset, subdir, f"pretrain_{benchmark_name}")
+            save_dir = os.path.join(self.ckpt, self.dir_name, subdir, f"pretrain_{benchmark_name}")
         else:
-            save_dir = os.path.join(self.ckpt, self.train_dataset, subdir, f"eval_{benchmark_name}")
+            save_dir = os.path.join(self.ckpt, self.dir_name, subdir, f"eval_{benchmark_name}")
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
 
@@ -214,34 +227,100 @@ class Detector:
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
-    #     Chế độ quét ảnh đơn lẻ tương tác:
-    #     - Nhận đường dẫn ảnh đầu vào từ người dùng qua bàn phím.
-    #     - Mở ảnh bằng PIL RGB và biến đổi qua pipeline tiền xử lý test_transform.
-    #     - Thực hiện suy luận dự đoán xác suất AI-Generated qua mô hình.
-    #     - In kết luận phân loại (AI-Generated nếu xác suất > 0.5, ngược lại là Real).
+    #     Chế độ quét ảnh tương tác liên tục trong vòng lặp (Interactive Scan Loop):
+    #     - Nạp mô hình một lần duy nhất.
+    #     - Cho phép người dùng nhập liên tục đường dẫn các bức ảnh cần test.
+    #     - Tự động làm sạch đường dẫn (bỏ dấu nháy kép/đơn khi kéo thả file).
+    #     - Xuất kết quả chi tiết từng nhánh, trọng số kết hợp và kết luận.
+    #     - Nhập 'q' hoặc 'exit' (hoặc nhấn Enter rỗng) để kết thúc phiên quét.
     # INPUT:
     #     - Nhận đường dẫn file ảnh từ standard input (bàn phím).
     # OUTPUT:
-    #     - In kết quả ra màn hình console và trả về score (float): xác suất ảnh được tạo bởi AI.
+    #     - Không trả về giá trị (in kết quả trực tiếp ra màn hình console).
     # -------------------------------------------------------------------------
     def scan(self):
-        image_filepath = input("Please enter the image filepath for scanning: ")
-        if not os.path.exists(image_filepath):
-            print(f"Image file not found: {image_filepath}")
-            image_filepath = input("Please enter the image filepath for scanning: ")
+        print("\n" + "=" * 76)
+        print(" CHẾ ĐỘ QUÉT ẢNH TƯƠNG TÁC (INTERACTIVE SCAN MODE)")
+        print(" - Nhập đường dẫn file ảnh hoặc kéo thả ảnh vào terminal.")
+        print(" - Nhập 'q', 'exit' hoặc gõ phím Enter trống để kết thúc.")
+        print("=" * 76 + "\n")
 
-        # Đọc ảnh và chuyển sang hệ màu RGB
-        image = Image.open(image_filepath).convert("RGB")
-        image = self.model.test_transform(image)
-        image = image.unsqueeze(0)  # Thêm chiều batch size (1, C, H, W)
-        image = image.to(self.device)
+        while True:
+            try:
+                user_input = input("Nhập đường dẫn ảnh để quét (hoặc 'q' để thoát): ").strip()
+            except (KeyboardInterrupt, EOFError):
+                print("\nĐã kết thúc phiên quét ảnh.")
+                break
 
-        # Dự đoán xác suất
-        prediction = self.model.predict(image)[0]
+            # Kiểm tra điều kiện thoát
+            if not user_input or user_input.lower() in ["q", "quit", "exit"]:
+                print("Đã thoát chế độ quét ảnh. Cảm ơn bạn!")
+                break
 
-        # In kết quả với ngưỡng 0.5
-        if prediction > 0.5:
-            print(f"Co-Spy Prediction: {prediction:.3f} - AI-Generated")
-        else:
-            print(f"Co-Spy Prediction: {prediction:.3f} - Real")
-        return prediction
+            # Tẩy sạch ký tự nháy kép hoặc nháy đơn khi kéo thả đường dẫn trên Windows terminal
+            image_filepath = user_input.strip('"\'')
+
+            if not os.path.exists(image_filepath):
+                print(f"[CẢNH BÁO] Không tìm thấy file: {image_filepath}. Vui lòng thử lại!\n")
+                continue
+
+            try:
+                # Đọc ảnh và chuyển sang hệ màu RGB
+                image = Image.open(image_filepath).convert("RGB")
+                image = self.model.test_transform(image)
+                image = image.unsqueeze(0)  # Thêm chiều batch size (1, C, H, W)
+                image = image.to(self.device)
+
+                # Nếu đang ở chế độ Fusion, phân tích sâu từng nhánh
+                if self.mode == "fusion" and hasattr(self.model, "sem") and hasattr(self.model, "art"):
+                    with torch.no_grad():
+                        x_sem = self.model.sem_transform(image)
+                        x_art = self.model.art_transform(image)
+
+                        logit_sem = self.model.sem(x_sem)
+                        logit_art = self.model.art(x_art)
+
+                        prob_sem = logit_sem.sigmoid().item()
+                        prob_art = logit_art.sigmoid().item()
+
+                        w_sem = self.model.fc.weight[0][0].item()
+                        w_art = self.model.fc.weight[0][1].item()
+                        bias = self.model.fc.bias[0].item()
+
+                        feat = torch.cat([logit_sem, logit_art], dim=1)
+                        total_logit = self.model.fc(feat)
+                        prediction = total_logit.sigmoid().item()
+
+                    tag_sem = "AI-Generated (TRUE)" if prob_sem > 0.5 else "Real (FALSE)"
+                    tag_art = "AI-Generated (TRUE)" if prob_art > 0.5 else "Real (FALSE)"
+                    tag_final = "AI-Generated" if prediction > 0.5 else "Real"
+
+                    print("\n" + "=" * 76)
+                    print(f"         KẾT QUẢ PHÂN TÍCH: {os.path.basename(image_filepath)}")
+                    print("=" * 76)
+                    print(f"[Nhánh 1 - Semantic (CLIP)]: Xác suất = {prob_sem:.3f} ({prob_sem*100:.1f}%) -> {tag_sem}")
+                    print(f"                             Trọng số đóng góp w1 = {w_sem:.4f}, Logit = {logit_sem.item():.4f}")
+                    print("-" * 76)
+                    print(f"[Nhánh 2 - Artifact (VAE)]:  Xác suất = {prob_art:.3f} ({prob_art*100:.1f}%) -> {tag_art}")
+                    print(f"                             Trọng số đóng góp w2 = {w_art:.4f}, Logit = {logit_art.item():.4f}")
+                    print("-" * 76)
+                    print(f"[Fusion Layer (Lớp kết hợp)]:")
+                    print(f"  - Trọng số nhánh Semantic (w1) : {w_sem:.4f}")
+                    print(f"  - Trọng số nhánh Artifact (w2) : {w_art:.4f}")
+                    print(f"  - Độ lệch hệ số (Bias b)       : {bias:+.4f}")
+                    print(f"  - Công thức tổng hợp Logit     : ({w_sem:.4f} * {logit_sem.item():.4f}) + ({w_art:.4f} * {logit_art.item():.4f}) {bias:+.4f} = {total_logit.item():.4f}")
+                    print("=" * 76)
+                    print(f"==> KẾT QUẢ TỔNG HỢP CUỐI CÙNG   : {prediction:.3f} ({prediction*100:.1f}%)")
+                    print(f"==> KẾT LUẬN                     : {tag_final}")
+                    print("=" * 76 + "\n")
+                else:
+                    # Chế độ branch hoặc end2end đơn thuần
+                    prediction = self.model.predict(image)[0]
+                    tag = "AI-Generated" if prediction > 0.5 else "Real"
+                    print("\n" + "-" * 50)
+                    print(f"File: {os.path.basename(image_filepath)}")
+                    print(f"Co-Spy Prediction: {prediction:.3f} - {tag}")
+                    print("-" * 50 + "\n")
+
+            except Exception as e:
+                print(f"[LỖI XỬ LÝ ẢNH]: {e}\n")

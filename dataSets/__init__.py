@@ -1,3 +1,33 @@
+"""
+=============================================================================
+FILE: dataSets/__init__.py
+CHỨC NĂNG & NHIỆM VỤ CỦA FILE:
+    - Đóng vai trò là package initializer cho module quản lý dữ liệu (dataSets).
+    - Xuất khẩu (export) và tập hợp toàn bộ các lớp Dataset phục vụ huấn luyện (Train) 
+      và kiểm thử (Test Benchmark):
+        1. TrainDataset: Dataset nạp ảnh thật/giả phục vụ huấn luyện thông thường.
+        2. FusionTrainDataset: Dataset nạp ảnh áp dụng song song 2 pipeline tiền xử lý cho nhánh Fusion.
+        3. CoSpyBenchTestDataset: Dataset kiểm thử cân bằng trên bộ Benchmark Co-Spy-Bench.
+        4. AIGCDetectTestDataset: Dataset kiểm thử trên bộ Benchmark AIGCDetectionBenchMark.
+    - Cung cấp danh sách các tập dữ liệu ảnh thật chuẩn và 22 mô hình sinh ảnh AI (generative models) 
+      được đánh giá trong các bộ benchmark tiêu chuẩn.
+
+DANH SÁCH CÁC THÀNH PHẦN XUẤT KHẨU TRONG FILE:
+    - Các lớp Dataset:
+        1. TrainDataset: Nạp ảnh huấn luyện (Real nhãn 0, Fake nhãn 1), xáo trộn và nén JPEG tùy chọn.
+        2. FusionTrainDataset: Tạo đồng thời hai tensor ảnh (Semantic transform và Artifact transform).
+        3. CoSpyBenchTestDataset: Ghép cặp kiểm thử giữa ảnh thật (MSCOCO/Flickr/...) và ảnh từ 22 mô hình sinh ảnh.
+        4. AIGCDetectTestDataset: Nạp dữ liệu kiểm thử theo chuẩn AIGCDetectionBenchMark cho ProGAN.
+    - Danh sách hằng số Benchmark:
+        5. CoSpyBench_DATASET_LIST: Danh sách các tập dữ liệu gốc ảnh thật (mscoco, flickr, cc3m, textcaps, sbu).
+        6. CoSpyBench_MODEL_LIST: Danh sách 22 mô hình sinh ảnh AI được kiểm thử trong Co-Spy-Bench 
+           (gồm SD-v1.4, SD-v1.5, SD-v2.1, SDXL, FLUX, LCM, PixArt, Playground v2/v2.5, SSD-1B, v.v.).
+        7. AIGCDetectionBenchMark_DATASET_LIST: Danh sách tập kiểm thử cho AIGCDetectionBenchMark.
+        8. AIGCDetectionBenchMark_MODEL_LIST: Danh sách 11 mô hình sinh ảnh AI trong AIGCDetectionBenchMark 
+           (ADM, BigGAN, CycleGAN, DALLE2, GauGAN, Glide, Midjourney, ProGAN, SD-v1.4, SD-v1.5, StarGAN).
+=============================================================================
+"""
+
 from .dataset import (
     AIGCDetectTestDataset,
     CoSpyBenchTestDataset,
