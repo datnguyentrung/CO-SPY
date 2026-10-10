@@ -1,15 +1,56 @@
+"""
+=============================================================================
+FILE: main.py
+CHỨC NĂNG & NHIỆM VỤ CỦA FILE:
+    - Điểm khởi chạy (entry point) chính cho toàn bộ hệ thống CO-SPY.
+    - Xử lý các tham số dòng lệnh (CLI arguments) như phase, mode, gpu, dataset, batch size, v.v.
+    - Thiết lập hạt giống ngẫu nhiên (seed) để đảm bảo tính tái lập (reproducibility).
+    - Cấu hình thiết bị tính toán (CUDA GPU hoặc CPU).
+    - Điều phối luồng thực thi tương ứng với 3 chế độ:
+        1. Huấn luyện (train)
+        2. Đánh giá benchmark (eval)
+        3. Kiểm thử / quét phân loại ảnh đơn lẻ (test)
+
+DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
+    1. main(args): Hàm điều phối chính, nhận arguments và kích hoạt Trainer hoặc Detector tương ứng với phase đã chọn.
+=============================================================================
+"""
+
 import torch
 from train import Trainer
 from evaluate import Detector
 from utils import seed_torch
 
 
+# -------------------------------------------------------------------------
+# CHỨC NĂNG:
+#     Hàm thực thi chính điều phối luồng làm việc theo 'phase' được chỉ định:
+#     - 'train': Khởi tạo đối tượng Trainer và gọi trainer.train() để huấn luyện.
+#     - 'eval': Khởi tạo Detector và chạy kiểm thử toàn bộ benchmark với evaluate_benchmark().
+#     - 'test': Khởi tạo Detector và mở chế độ quét dự đoán ảnh người dùng nhập (scan()).
+# INPUT:
+#     - args (argparse.Namespace): Đối tượng chứa toàn bộ tham số dòng lệnh:
+#         + phase (str): 'train', 'eval', hoặc 'test'.
+#         + mode (str): 'branch', 'fusion', hoặc 'end2end'.
+#         + device (str): 'cuda:X' hoặc 'cpu'.
+#         + train_dataset (str): Tên bộ dữ liệu huấn luyện (vd: 'sd-v1_4', 'progan').
+#         + branch (str): 'artifact' hoặc 'semantic' (nếu chạy branch mode).
+#         + pretrain (bool): Có dùng pretrained weights có sẵn hay không.
+#         + ckpt (str): Thư mục lưu/chứa checkpoint weights.
+#         + epochs (int): Số epoch huấn luyện.
+#         + batch_size (int): Kích thước batch.
+#         + seed (int): Seed ngẫu nhiên.
+#         + feat_interp (bool): Có áp dụng feature interpolation hay không.
+#         + feat_interp_alpha, feat_interp_ratio (float): Các siêu tham số cho feat_interp.
+# OUTPUT:
+#     - Không trả về giá trị (None). Kết quả in ra terminal hoặc lưu file logs/checkpoint.
+# -------------------------------------------------------------------------
 def main(args):
     #########################################
-    # Phase 1: Training
+    # Giai đoạn 1: Huấn luyện (Training)
     #########################################
     if args.phase == "train":
-        # Initialize Trainer
+        # Khởi tạo đối tượng Trainer với các siêu tham số truyền vào
         trainer = Trainer(
             mode=args.mode,
             device=args.device,
@@ -22,13 +63,13 @@ def main(args):
             feat_interp_alpha=args.feat_interp_alpha,
             feat_interp_ratio=args.feat_interp_ratio,
         )
-        # Start training
+        # Bắt đầu quá trình huấn luyện
         trainer.train()
     #########################################
-    # Phase 2: Evaluation
+    # Giai đoạn 2: Đánh giá Benchmark (Evaluation)
     #########################################
     elif args.phase == "eval":
-        # Initialize Detector
+        # Khởi tạo Detector để đánh giá hàng loạt
         detector = Detector(
             device=args.device,
             mode=args.mode,
@@ -38,13 +79,13 @@ def main(args):
             batch_size=args.batch_size,
             branch=args.branch,
         )
-        # Start evaluation
+        # Bắt đầu đánh giá toàn diện trên benchmark
         detector.evaluate_benchmark()
     ##########################################
-    # Phase 3: Test on a single image
+    # Giai đoạn 3: Kiểm thử trên 1 ảnh (Single image scan)
     ##########################################
     elif args.phase == "test":
-        # Initialize Detector
+        # Khởi tạo Detector ở chế độ inference
         detector = Detector(
             device=args.device,
             mode=args.mode,
@@ -53,7 +94,7 @@ def main(args):
             ckpt=args.ckpt,
             batch_size=args.batch_size
         )
-        # Test on a single image
+        # Nhận đường dẫn ảnh và trả về kết quả
         score = detector.scan()
     else:
         raise ValueError(f"Unknown phase: {args.phase}")
