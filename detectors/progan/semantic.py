@@ -19,6 +19,7 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 
 import torch
 from transformers import CLIPModel
+
 from .base import BaseDetector
 
 
@@ -39,7 +40,7 @@ class SemanticDetector(BaseDetector):
     #     - Đối tượng SemanticDetector.
     # -------------------------------------------------------------------------
     def __init__(self, dim_clip=768, num_classes=1):
-        super(SemanticDetector, self).__init__()
+        super().__init__()
 
         # Get the pre-trained CLIP
         model_name = "openai/clip-vit-large-patch14"
@@ -53,11 +54,11 @@ class SemanticDetector(BaseDetector):
 
         # CLIP normalization
         self.mean = [0.48145466, 0.45782750, 0.40821073]
-        self.std  = [0.26862954, 0.26130258, 0.27577711]
+        self.std = [0.26862954, 0.26130258, 0.27577711]
 
         # Data augmentation (override defaults)
         self.blur_prob = 0.5
-        self.jpg_prob  = 0.5
+        self.jpg_prob = 0.5
 
         # Build transforms
         self._build_transforms()
@@ -101,6 +102,6 @@ class SemanticDetector(BaseDetector):
     #     - Không trả về giá trị (None).
     # -------------------------------------------------------------------------
     def load_weights(self, weights_path):
-        weights = torch.load(weights_path, map_location='cpu')
+        weights = torch.load(weights_path, map_location="cpu")
         self.fc.weight.data = weights["fc.weight"]
         self.fc.bias.data = weights["fc.bias"]

@@ -18,10 +18,12 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 =============================================================================
 """
 
-import torch
 import open_clip
+import torch
 from torchvision import transforms
+
 from utils import data_augment
+
 from .base import BaseDetector
 
 
@@ -42,12 +44,14 @@ class SemanticDetector(BaseDetector):
     #   - Đối tượng SemanticDetector đã sẵn sàng huấn luyện hoặc đánh giá.
     # -------------------------------------------------------------------------
     def __init__(self, dim_clip=1152, num_classes=1):
-        super(SemanticDetector, self).__init__()
+        super().__init__()
 
         # Tải mô hình OpenCLIP pretrained (SigLIP ViT-SO400M-14, resolution 384x384)
         model_name = "ViT-SO400M-14-SigLIP-384"
         version = "webli"
-        self.clip, _, _ = open_clip.create_model_and_transforms(model_name, pretrained=version)
+        self.clip, _, _ = open_clip.create_model_and_transforms(
+            model_name, pretrained=version
+        )
 
         # Đóng băng visual encoder của CLIP, không tính toán gradient để tiết kiệm VRAM và giữ nguyên tri thức
         self.clip.requires_grad_(False)
@@ -57,7 +61,7 @@ class SemanticDetector(BaseDetector):
 
         # Xây dựng các bước tiền xử lý ảnh
         self._build_transforms()
-    
+
     # -------------------------------------------------------------------------
     # CHỨC NĂNG: Xây dựng pipeline tiền xử lý ảnh và các phép biến đổi tăng cường (Augmentation)
     # INPUT: Không có
@@ -77,7 +81,7 @@ class SemanticDetector(BaseDetector):
         self.blur_prob = 0.5
         self.blur_sig = [0.0, 3.0]
         self.jpg_prob = 0.5
-        self.jpg_method = ['cv2', 'pil']
+        self.jpg_method = ["cv2", "pil"]
         self.jpg_qual = list(range(30, 101))
 
         # Cấu hình augmentation cho tập huấn luyện (Train)
@@ -92,10 +96,10 @@ class SemanticDetector(BaseDetector):
         # Cấu hình augmentation cố định cho tập kiểm thử (Val)
         self.val_aug_config = {
             "blur_prob": self.blur_prob,
-            "blur_sig": [self.blur_sig[0] + self.blur_sig[1] / 2],   # [1.5]
+            "blur_sig": [self.blur_sig[0] + self.blur_sig[1] / 2],  # [1.5]
             "jpg_prob": self.jpg_prob,
-            "jpg_method": ['pil'],
-            "jpg_qual": [int((self.jpg_qual[0] + self.jpg_qual[-1]) / 2)],   # [65]
+            "jpg_method": ["pil"],
+            "jpg_qual": [int((self.jpg_qual[0] + self.jpg_qual[-1]) / 2)],  # [65]
         }
 
         # Định nghĩa các phép biến đổi hình học
@@ -103,35 +107,43 @@ class SemanticDetector(BaseDetector):
         center_crop = transforms.CenterCrop(self.cropSize)
         flip_func = transforms.RandomHorizontalFlip()
         rz_func = transforms.Resize(self.loadSize)
-        train_aug_func = transforms.Lambda(lambda x: data_augment(x, self.train_aug_config))
+        train_aug_func = transforms.Lambda(
+            lambda x: data_augment(x, self.train_aug_config)
+        )
         val_aug_func = transforms.Lambda(lambda x: data_augment(x, self.val_aug_config))
 
         # Pipeline cho tập Train: Resize -> Augment -> Cắt ngẫu nhiên -> Lật ngang -> ToTensor -> Normalize
-        self.train_transform = transforms.Compose([
-            rz_func,
-            train_aug_func,
-            random_crop,
-            flip_func,
-            transforms.ToTensor(),
-            transforms.Normalize(mean=self.mean, std=self.std),
-        ])
+        self.train_transform = transforms.Compose(
+            [
+                rz_func,
+                train_aug_func,
+                random_crop,
+                flip_func,
+                transforms.ToTensor(),
+                transforms.Normalize(mean=self.mean, std=self.std),
+            ]
+        )
 
         # Pipeline cho tập Val
-        self.val_transform = transforms.Compose([
-            rz_func,
-            val_aug_func,
-            random_crop,
-            transforms.ToTensor(),
-            transforms.Normalize(mean=self.mean, std=self.std),
-        ])
+        self.val_transform = transforms.Compose(
+            [
+                rz_func,
+                val_aug_func,
+                random_crop,
+                transforms.ToTensor(),
+                transforms.Normalize(mean=self.mean, std=self.std),
+            ]
+        )
 
         # Pipeline cho tập Test: Resize -> Cắt trung tâm -> ToTensor -> Normalize
-        self.test_transform = transforms.Compose([
-            rz_func,
-            center_crop,
-            transforms.ToTensor(),
-            transforms.Normalize(mean=self.mean, std=self.std),
-        ])
+        self.test_transform = transforms.Compose(
+            [
+                rz_func,
+                center_crop,
+                transforms.ToTensor(),
+                transforms.Normalize(mean=self.mean, std=self.std),
+            ]
+        )
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG: Lan truyền xuôi trích xuất đặc trưng CLIP và phân loại
@@ -174,6 +186,6 @@ class SemanticDetector(BaseDetector):
     # -------------------------------------------------------------------------
     def load_weights(self, weights_path):
         """Nạp trọng số cho lớp Linear fc."""
-        weights = torch.load(weights_path, map_location='cpu')
+        weights = torch.load(weights_path, map_location="cpu")
         self.fc.weight.data = weights["fc.weight"]
         self.fc.bias.data = weights["fc.bias"]

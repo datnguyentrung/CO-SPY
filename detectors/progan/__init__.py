@@ -1,7 +1,13 @@
-from .base import BaseDetector
 from .artifact import ArtifactDetector
-from .semantic import SemanticDetector
-from .fusion import CoSpyFusionDetector
+from .base import BaseDetector
 from .end2end import End2EndDetector
+from .fusion import CoSpyFusionDetector
+from .semantic import SemanticDetector
 
-__all__ = ["BaseDetector", "ArtifactDetector", "SemanticDetector", "CoSpyFusionDetector", "End2EndDetector"]
+__all__ = [
+    "ArtifactDetector",
+    "BaseDetector",
+    "CoSpyFusionDetector",
+    "End2EndDetector",
+    "SemanticDetector",
+]

@@ -25,10 +25,12 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 """
 
 import torch
-import torch.nn as nn
 from diffusers import StableDiffusionPipeline
+from torch import nn
 from torchvision import transforms
+
 from utils import data_augment
+
 from .base import BaseDetector
 
 
@@ -51,7 +53,7 @@ class ArtifactDetector(BaseDetector):
     #   - Đối tượng ArtifactDetector hoàn chỉnh.
     # -------------------------------------------------------------------------
     def __init__(self, dim_artifact=512, num_classes=1):
-        super(ArtifactDetector, self).__init__()
+        super().__init__()
 
         # Tải mô hình VAE pretrained từ Stable Diffusion v1.4
         model_id = "CompVis/stable-diffusion-v1-4"
@@ -64,7 +66,7 @@ class ArtifactDetector(BaseDetector):
 
         # Xây dựng các bước tiền xử lý ảnh
         self._build_transforms()
-    
+
     # -------------------------------------------------------------------------
     # CHỨC NĂNG: Xây dựng pipeline tiền xử lý ảnh cho Artifact Detector
     # INPUT: Không có
@@ -84,7 +86,7 @@ class ArtifactDetector(BaseDetector):
         self.blur_prob = 0.0
         self.blur_sig = [0.0, 3.0]
         self.jpg_prob = 0.5
-        self.jpg_method = ['cv2', 'pil']
+        self.jpg_method = ["cv2", "pil"]
         self.jpg_qual = list(range(70, 96))
 
         self.aug_config = {
@@ -102,30 +104,36 @@ class ArtifactDetector(BaseDetector):
         aug_func = transforms.Lambda(lambda x: data_augment(x, self.aug_config))
 
         # Pipeline cho tập Train
-        self.train_transform = transforms.Compose([
-            aug_func,
-            rz_func,
-            random_crop,
-            flip_func,
-            transforms.ToTensor(),
-            transforms.Normalize(mean=self.mean, std=self.std),
-        ])
+        self.train_transform = transforms.Compose(
+            [
+                aug_func,
+                rz_func,
+                random_crop,
+                flip_func,
+                transforms.ToTensor(),
+                transforms.Normalize(mean=self.mean, std=self.std),
+            ]
+        )
 
         # Pipeline cho tập Val
-        self.val_transform = transforms.Compose([
-            rz_func,
-            random_crop,
-            transforms.ToTensor(),
-            transforms.Normalize(mean=self.mean, std=self.std),
-        ])
+        self.val_transform = transforms.Compose(
+            [
+                rz_func,
+                random_crop,
+                transforms.ToTensor(),
+                transforms.Normalize(mean=self.mean, std=self.std),
+            ]
+        )
 
         # Pipeline cho tập Test
-        self.test_transform = transforms.Compose([
-            rz_func,
-            center_crop,
-            transforms.ToTensor(),
-            transforms.Normalize(mean=self.mean, std=self.std),
-        ])
+        self.test_transform = transforms.Compose(
+            [
+                rz_func,
+                center_crop,
+                transforms.ToTensor(),
+                transforms.Normalize(mean=self.mean, std=self.std),
+            ]
+        )
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG: Lan truyền xuôi trích xuất đặc trưng artifact và phân loại
@@ -157,7 +165,9 @@ class ArtifactDetector(BaseDetector):
 # -----------------------------------------------------------------------------
 def conv3x3(in_planes, out_planes, stride=1):
     """Tích chập 3x3 kèm padding=1 để giữ nguyên kích thước không gian."""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+    return nn.Conv2d(
+        in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -172,10 +182,11 @@ def conv1x1(in_planes, out_planes, stride=1):
 
 class Bottleneck(nn.Module):
     """Khối Bottleneck chuẩn của kiến trúc ResNet (1x1 conv -> 3x3 conv -> 1x1 conv + residual)."""
+
     expansion = 4
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
+        super().__init__()
         self.conv1 = conv1x1(inplanes, planes)
         self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = conv3x3(planes, planes, stride)
@@ -219,8 +230,9 @@ class VAEReconEncoder(nn.Module):
     Bộ mã hóa sai số tái tạo VAE (VAE Reconstruction Error Encoder):
     Tính toán hiệu số giữa ảnh gốc và ảnh tái tạo từ VAE, sau đó đưa qua mạng ResNet rút gọn.
     """
+
     def __init__(self, vae, block=Bottleneck):
-        super(VAEReconEncoder, self).__init__()
+        super().__init__()
 
         # Khởi tạo các tầng đầu vào của ResNet
         self.inplanes = 64
@@ -238,7 +250,7 @@ class VAEReconEncoder(nn.Module):
         # Khởi tạo trọng số Kaiming cho mạng tích chập
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -286,7 +298,7 @@ class VAEReconEncoder(nn.Module):
         x = x - x_recon
 
         # 3. Khuếch đại sai số để mạng dễ bắt được tín hiệu
-        x = x / 7. * 100.
+        x = x / 7.0 * 100.0
 
         # 4. Trích xuất đặc trưng qua các lớp tích chập ResNet
         x = self.conv1(x)

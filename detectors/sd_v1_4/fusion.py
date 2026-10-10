@@ -22,16 +22,18 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 
 import torch
 from torchvision import transforms
+
 from utils import data_augment
+
+from .artifact import ArtifactDetector
 from .base import BaseDetector
 from .semantic import SemanticDetector
-from .artifact import ArtifactDetector
 
 
 class CoSpyFusionDetector(BaseDetector):
     """
     Bộ phát hiện CO-SPY Fusion (Hiệu chỉnh và kết hợp 2 nhánh Semantic và Artifact).
-    Ý tưởng cốt lõi của bài báo: 
+    Ý tưởng cốt lõi của bài báo:
     - Đóng băng (Freeze) 2 nhánh Semantic (CLIP) và Artifact (VAE).
     - Dùng 1 lớp tuyến tính Linear(2, 1) để học cách kết hợp tối ưu xác suất từ 2 nguồn đặc trưng.
     """
@@ -46,7 +48,7 @@ class CoSpyFusionDetector(BaseDetector):
     #   - Đối tượng CoSpyFusionDetector
     # -------------------------------------------------------------------------
     def __init__(self, semantic_weights_path, artifact_weights_path, num_classes=1):
-        super(CoSpyFusionDetector, self).__init__()
+        super().__init__()
 
         # Khởi tạo và nạp trọng số đã huấn luyện cho nhánh Semantic
         self.sem = SemanticDetector()
@@ -67,13 +69,15 @@ class CoSpyFusionDetector(BaseDetector):
 
         # Các phép biến đổi dữ liệu thực hiện bên trong hàm forward
         # Chuẩn hóa riêng theo mean/std của từng nhánh; nhánh artifact cần resize theo cropSize riêng
-        self.sem_transform = transforms.Compose([
-            transforms.Normalize(self.sem.mean, self.sem.std)
-        ])
-        self.art_transform = transforms.Compose([
-            transforms.Resize(self.art.cropSize, antialias=False),
-            transforms.Normalize(self.art.mean, self.art.std)
-        ])
+        self.sem_transform = transforms.Compose(
+            [transforms.Normalize(self.sem.mean, self.sem.std)]
+        )
+        self.art_transform = transforms.Compose(
+            [
+                transforms.Resize(self.art.cropSize, antialias=False),
+                transforms.Normalize(self.art.mean, self.art.std),
+            ]
+        )
 
         # Xây dựng các phép tiền xử lý ảnh chung (không normalize ở đây vì đã làm trong forward)
         self._build_transforms()
@@ -94,7 +98,7 @@ class CoSpyFusionDetector(BaseDetector):
         self.blur_prob = 0.0
         self.blur_sig = [0.0, 3.0]
         self.jpg_prob = 0.5
-        self.jpg_method = ['cv2', 'pil']
+        self.jpg_method = ["cv2", "pil"]
         self.jpg_qual = list(range(70, 96))
 
         # Đóng gói cấu hình augment
@@ -113,27 +117,33 @@ class CoSpyFusionDetector(BaseDetector):
         aug_func = transforms.Lambda(lambda x: data_augment(x, self.aug_config))
 
         # Pipeline cho tập huấn luyện (Train): Lật ngang, augment, resize, crop ngẫu nhiên, chuyển tensor
-        self.train_transform = transforms.Compose([
-            flip_func,
-            aug_func,
-            rz_func,
-            random_crop,
-            transforms.ToTensor(),
-        ])
+        self.train_transform = transforms.Compose(
+            [
+                flip_func,
+                aug_func,
+                rz_func,
+                random_crop,
+                transforms.ToTensor(),
+            ]
+        )
 
         # Pipeline cho tập kiểm thử validation (Val)
-        self.val_transform = transforms.Compose([
-            rz_func,
-            random_crop,
-            transforms.ToTensor(),
-        ])
+        self.val_transform = transforms.Compose(
+            [
+                rz_func,
+                random_crop,
+                transforms.ToTensor(),
+            ]
+        )
 
         # Pipeline cho tập kiểm thử thực tế (Test): Resize và cắt chính giữa (Center Crop)
-        self.test_transform = transforms.Compose([
-            rz_func,
-            center_crop,
-            transforms.ToTensor(),
-        ])
+        self.test_transform = transforms.Compose(
+            [
+                rz_func,
+                center_crop,
+                transforms.ToTensor(),
+            ]
+        )
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG: Lan truyền xuôi qua 2 nhánh con, ghép nối và phân loại
@@ -183,6 +193,6 @@ class CoSpyFusionDetector(BaseDetector):
     # -------------------------------------------------------------------------
     def load_weights(self, weights_path):
         """Nạp trọng số cho riêng lớp Linear fc."""
-        weights = torch.load(weights_path, map_location='cpu')
+        weights = torch.load(weights_path, map_location="cpu")
         self.fc.weight.data = weights["fc.weight"]
         self.fc.bias.data = weights["fc.bias"]

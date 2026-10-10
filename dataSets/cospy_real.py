@@ -22,11 +22,13 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 =============================================================================
 """
 
-import os
 import json
-import torch
+import os
+
 import numpy as np
+import torch
 from PIL import Image
+
 import datasets as ds
 
 
@@ -35,7 +37,7 @@ import datasets as ds
 # =============================================================================
 class MSCOCO2017(torch.utils.data.Dataset):
     """Dataset quản lý ảnh thật từ tập MSCOCO 2017 (train hoặc val) kèm theo prompt chú thích (caption)."""
-    
+
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
     #     Quét danh sách file ảnh .jpg trong thư mục MS COCO và nạp từ điển chú thích từ file json.
@@ -45,12 +47,16 @@ class MSCOCO2017(torch.utils.data.Dataset):
     # OUTPUT:
     #     - Đối tượng MSCOCO2017.
     # -------------------------------------------------------------------------
-    def __init__(self, split='val', transform=None):
+    def __init__(self, split="val", transform=None):
         image_dir = f"data/train/sd-v1_4/mscoco2017/{split}2017"
-        self.image_list = [os.path.join(image_dir, f) for f in os.listdir(image_dir) if f.endswith(('.jpg'))]
+        self.image_list = [
+            os.path.join(image_dir, f)
+            for f in os.listdir(image_dir)
+            if f.endswith(".jpg")
+        ]
         self.image_list.sort()
         caption_filepath = f"data/train/sd-v1_4/mscoco2017/{split}2017.json"
-        with open(caption_filepath, 'r') as f:
+        with open(caption_filepath, "r") as f:
             self.captions = json.load(f)
 
         self.transform = transform
@@ -77,7 +83,7 @@ class MSCOCO2017(torch.utils.data.Dataset):
     # -------------------------------------------------------------------------
     def __getitem__(self, idx):
         image_filepath = self.image_list[idx]
-        image = Image.open(image_filepath).convert('RGB')
+        image = Image.open(image_filepath).convert("RGB")
         if self.transform:
             image = self.transform(image)
         image_id = os.path.basename(image_filepath)
@@ -90,7 +96,7 @@ class MSCOCO2017(torch.utils.data.Dataset):
 # =============================================================================
 class Flickr30k(torch.utils.data.Dataset):
     """Dataset quản lý ảnh thật từ nguồn Flickr30k (tải qua HuggingFace datasets)."""
-    
+
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
     #     Tải hoặc nạp cache dataset Flickr30k qua thư viện datasets của Hugging Face.
@@ -100,7 +106,7 @@ class Flickr30k(torch.utils.data.Dataset):
     # OUTPUT:
     #     - Đối tượng Flickr30k.
     # -------------------------------------------------------------------------
-    def __init__(self, split='test', transform=None):
+    def __init__(self, split="test", transform=None):
         self.dataset = ds.load_dataset("nlphuji/flickr30k")[split]
         self.transform = transform
 
@@ -126,10 +132,10 @@ class Flickr30k(torch.utils.data.Dataset):
     # -------------------------------------------------------------------------
     def __getitem__(self, idx):
         example = self.dataset[idx]
-        image = example['image']
+        image = example["image"]
         if self.transform:
             image = self.transform(image)
-        caption_list = example['caption']
+        caption_list = example["caption"]
         caption = np.random.choice(caption_list)
         return image, caption
 
@@ -139,7 +145,7 @@ class Flickr30k(torch.utils.data.Dataset):
 # =============================================================================
 class OtherReal(torch.utils.data.Dataset):
     """Dataset quản lý các mẫu ảnh thật dùng cho benchmark từ các nguồn khác: CC3M, SBU, TextCaps."""
-    
+
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
     #     Khởi tạo danh sách ảnh cho một trong các tập CC3M, SBU hoặc TextCaps.
@@ -158,9 +164,11 @@ class OtherReal(torch.utils.data.Dataset):
         elif dataset_name == "textcaps":
             self.image_dir = os.path.join(root_dir, "TextCaps")
         else:
-            raise ValueError(f"Dataset {dataset_name} not supported in OtherReal class.")
+            raise ValueError(
+                f"Dataset {dataset_name} not supported in OtherReal class."
+            )
 
-        self.image_list = [f for f in os.listdir(self.image_dir) if f.endswith(('.jpg'))]
+        self.image_list = [f for f in os.listdir(self.image_dir) if f.endswith(".jpg")]
         self.image_list.sort()
 
         self.transform = transform
@@ -188,11 +196,11 @@ class OtherReal(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         img_name = self.image_list[idx]
         img_path = os.path.join(self.image_dir, img_name)
-        image = Image.open(img_path).convert('RGB')
+        image = Image.open(img_path).convert("RGB")
         if self.transform:
             image = self.transform(image)
-        caption_filepath = img_path.replace('.jpg', '.json')
-        with open(caption_filepath, 'r') as f:
+        caption_filepath = img_path.replace(".jpg", ".json")
+        with open(caption_filepath, "r") as f:
             caption_data = json.load(f)
-        caption = caption_data['caption']
+        caption = caption_data["caption"]
         return image, caption

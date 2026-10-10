@@ -2,7 +2,7 @@
 =============================================================================
 FILE: detectors/progan/artifact.py
 CHỨC NĂNG & NHIỆM VỤ CỦA FILE:
-    - Định nghĩa lớp ArtifactDetector và kiến trúc mạng ResNet trích xuất đặc trưng dấu vết nội suy 
+    - Định nghĩa lớp ArtifactDetector và kiến trúc mạng ResNet trích xuất đặc trưng dấu vết nội suy
       (dựa trên phương pháp NPR - Neighboring Pixel Relationships) cho ProGAN.
     - Tính toán dư sai nội suy (artifact = x - interpolate(x, 0.5)) để làm nổi bật các dấu vết tần số cao
       do thuật toán nội suy/upsampling của mạng GAN gây ra.
@@ -23,8 +23,9 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 """
 
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.nn import functional as F
+
 from .base import BaseDetector
 
 
@@ -36,7 +37,7 @@ class ArtifactDetector(BaseDetector):
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
-    #     Khởi tạo ArtifactDetector: tạo artifact_encoder (ResNet 4 tầng), 
+    #     Khởi tạo ArtifactDetector: tạo artifact_encoder (ResNet 4 tầng),
     #     lớp phân loại tuyến tính fc và xây dựng pipeline tiền xử lý ảnh.
     # INPUT:
     #     - dim_artifact (int): Số chiều vector đặc trưng artifact (mặc định 512).
@@ -45,7 +46,7 @@ class ArtifactDetector(BaseDetector):
     #     - Đối tượng ArtifactDetector.
     # -------------------------------------------------------------------------
     def __init__(self, dim_artifact=512, num_classes=1):
-        super(ArtifactDetector, self).__init__()
+        super().__init__()
 
         # Load the artifact encoder based on NPR
         self.artifact_encoder = ResNet(Bottleneck, [3, 4, 6, 3])
@@ -99,8 +100,9 @@ def conv1x1(in_planes, out_planes, stride=1):
 #     - nn.Conv2d: Lớp tích chập 3x3.
 # -------------------------------------------------------------------------
 def conv3x3(in_planes, out_planes, stride=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-                     padding=1, bias=False)
+    return nn.Conv2d(
+        in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False
+    )
 
 
 # =============================================================================
@@ -108,6 +110,7 @@ def conv3x3(in_planes, out_planes, stride=1):
 # =============================================================================
 class Bottleneck(nn.Module):
     """Khối Bottleneck chuẩn với hệ số mở rộng kênh expansion=4."""
+
     expansion = 4
 
     # -------------------------------------------------------------------------
@@ -122,7 +125,7 @@ class Bottleneck(nn.Module):
     #     - Đối tượng Bottleneck.
     # -------------------------------------------------------------------------
     def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
+        super().__init__()
         self.conv1 = conv1x1(inplanes, planes)
         self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = conv3x3(planes, planes, stride)
@@ -181,25 +184,28 @@ class ResNet(nn.Module):
     #     - Đối tượng ResNet.
     # -------------------------------------------------------------------------
     def __init__(self, block, layers, num_classes=1):
-        super(ResNet, self).__init__()
+        super().__init__()
 
         self.unfoldSize = 2
         self.unfoldIndex = 0
         assert self.unfoldSize > 1
-        assert -1 < self.unfoldIndex and self.unfoldIndex < self.unfoldSize*self.unfoldSize
+        assert (
+            -1 < self.unfoldIndex
+            and self.unfoldIndex < self.unfoldSize * self.unfoldSize
+        )
         self.inplanes = 64
         self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64 , layers[0])
+        self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc1 = nn.Linear(512, num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -233,7 +239,7 @@ class ResNet(nn.Module):
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
-    #     Thực hiện nội suy giảm kích thước theo hệ số factor rồi phóng to lại kích thước gốc 
+    #     Thực hiện nội suy giảm kích thước theo hệ số factor rồi phóng to lại kích thước gốc
     #     bằng Nearest Neighbor để mô phỏng tái lập ảnh và phát hiện sai số điểm ảnh.
     # INPUT:
     #     - img (torch.Tensor): Tensor ảnh đầu vào (B, C, H, W).
@@ -243,13 +249,13 @@ class ResNet(nn.Module):
     # -------------------------------------------------------------------------
     def interpolate(self, img, factor):
         return F.interpolate(
-            F.interpolate(img,
-                          scale_factor=factor,
-                          mode='nearest',
-                          recompute_scale_factor=True),
+            F.interpolate(
+                img, scale_factor=factor, mode="nearest", recompute_scale_factor=True
+            ),
             scale_factor=1 / factor,
-            mode='nearest',
-            recompute_scale_factor=True)
+            mode="nearest",
+            recompute_scale_factor=True,
+        )
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:

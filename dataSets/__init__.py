@@ -1,5 +1,9 @@
-from .dataset import TrainDataset, CoSpyBenchTestDataset, AIGCDetectTestDataset, FusionTrainDataset
-
+from .dataset import (
+    AIGCDetectTestDataset,
+    CoSpyBenchTestDataset,
+    FusionTrainDataset,
+    TrainDataset,
+)
 
 # Co-Spy-Bench: List of evaluated real datasets
 CoSpyBench_DATASET_LIST = ["mscoco", "flickr", "cc3m", "textcaps", "sbu"]
@@ -62,6 +66,13 @@ AIGCDetectionBenchMark_MODEL_LIST = [
 ]
 
 
-__all__ = ["TrainDataset", "CoSpyBenchTestDataset", "AIGCDetectTestDataset", "FusionTrainDataset",
-           "CoSpyBench_DATASET_LIST", "CoSpyBench_MODEL_LIST",
-           "AIGCDetectionBenchMark_DATASET_LIST", "AIGCDetectionBenchMark_MODEL_LIST"]
+__all__ = [
+    "AIGCDetectTestDataset",
+    "AIGCDetectionBenchMark_DATASET_LIST",
+    "AIGCDetectionBenchMark_MODEL_LIST",
+    "CoSpyBenchTestDataset",
+    "CoSpyBench_DATASET_LIST",
+    "CoSpyBench_MODEL_LIST",
+    "FusionTrainDataset",
+    "TrainDataset",
+]

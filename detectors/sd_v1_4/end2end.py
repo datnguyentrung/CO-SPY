@@ -2,11 +2,11 @@
 =============================================================================
 FILE: detectors/sd-v1_4/end2end.py
 CHỨC NĂNG & NHIỆM VỤ CỦA FILE:
-    - Định nghĩa lớp End2EndDetector kết hợp nhánh Semantic và nhánh Artifact 
+    - Định nghĩa lớp End2EndDetector kết hợp nhánh Semantic và nhánh Artifact
       để huấn luyện đồng bộ từ đầu đến cuối (End-to-End Training).
     - Tích hợp kỹ thuật Feature Dropout ngẫu nhiên giữa 2 nhánh (xác suất 30%) trong khi train
       nhằm tránh hiện tượng mạng bị thiên lệch hoặc phụ thuộc hoàn toàn vào một nhánh duy nhất.
-    - Cung cấp cơ chế lưu trữ và nạp trọng số đồng bộ cho tất cả các thành phần: 
+    - Cung cấp cơ chế lưu trữ và nạp trọng số đồng bộ cho tất cả các thành phần:
       sem.fc, art.fc, art.artifact_encoder và classifier.
 
 DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
@@ -18,13 +18,16 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 =============================================================================
 """
 
-import torch
 import random
+
+import torch
 from torchvision import transforms
+
 from utils import data_augment, weights2cpu
+
+from .artifact import ArtifactDetector
 from .base import BaseDetector
 from .semantic import SemanticDetector
-from .artifact import ArtifactDetector
 
 
 # =============================================================================
@@ -49,7 +52,7 @@ class End2EndDetector(BaseDetector):
     #     - Đối tượng End2EndDetector.
     # -------------------------------------------------------------------------
     def __init__(self, num_classes=1):
-        super(End2EndDetector, self).__init__()
+        super().__init__()
 
         # Khởi tạo nhánh Semantic
         self.sem = SemanticDetector()
@@ -63,13 +66,15 @@ class End2EndDetector(BaseDetector):
         self.fc = torch.nn.Linear(self.sem_dim + self.art_dim, num_classes)
 
         # Chuẩn hóa riêng theo từng nhánh
-        self.sem_transform = transforms.Compose([
-            transforms.Normalize(self.sem.mean, self.sem.std)
-        ])
-        self.art_transform = transforms.Compose([
-            transforms.Resize(self.art.cropSize, antialias=False),
-            transforms.Normalize(self.art.mean, self.art.std)
-        ])
+        self.sem_transform = transforms.Compose(
+            [transforms.Normalize(self.sem.mean, self.sem.std)]
+        )
+        self.art_transform = transforms.Compose(
+            [
+                transforms.Resize(self.art.cropSize, antialias=False),
+                transforms.Normalize(self.art.mean, self.art.std),
+            ]
+        )
 
         # Xây dựng các bước tiền xử lý ảnh chung
         self._build_transforms()
@@ -90,7 +95,7 @@ class End2EndDetector(BaseDetector):
         self.blur_prob = 0.0
         self.blur_sig = [0.0, 3.0]
         self.jpg_prob = 0.5
-        self.jpg_method = ['cv2', 'pil']
+        self.jpg_method = ["cv2", "pil"]
         self.jpg_qual = list(range(70, 96))
 
         self.aug_config = {
@@ -107,25 +112,31 @@ class End2EndDetector(BaseDetector):
         rz_func = transforms.Resize(self.loadSize)
         aug_func = transforms.Lambda(lambda x: data_augment(x, self.aug_config))
 
-        self.train_transform = transforms.Compose([
-            flip_func,
-            aug_func,
-            rz_func,
-            random_crop,
-            transforms.ToTensor(),
-        ])
+        self.train_transform = transforms.Compose(
+            [
+                flip_func,
+                aug_func,
+                rz_func,
+                random_crop,
+                transforms.ToTensor(),
+            ]
+        )
 
-        self.val_transform = transforms.Compose([
-            rz_func,
-            random_crop,
-            transforms.ToTensor(),
-        ])
+        self.val_transform = transforms.Compose(
+            [
+                rz_func,
+                random_crop,
+                transforms.ToTensor(),
+            ]
+        )
 
-        self.test_transform = transforms.Compose([
-            rz_func,
-            center_crop,
-            transforms.ToTensor(),
-        ])
+        self.test_transform = transforms.Compose(
+            [
+                rz_func,
+                center_crop,
+                transforms.ToTensor(),
+            ]
+        )
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
@@ -168,7 +179,7 @@ class End2EndDetector(BaseDetector):
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
-    #     Lưu trữ toàn bộ tham số của mô hình End-to-End ra file: 
+    #     Lưu trữ toàn bộ tham số của mô hình End-to-End ra file:
     #     gồm sem.fc, art.fc, art.artifact_encoder và classifier (self.fc).
     # INPUT:
     #     - weights_path (str): Đường dẫn file .pth cần ghi.
@@ -193,7 +204,7 @@ class End2EndDetector(BaseDetector):
     #     - Không trả về giá trị (None).
     # -------------------------------------------------------------------------
     def load_weights(self, weights_path):
-        weights = torch.load(weights_path, map_location='cpu')
+        weights = torch.load(weights_path, map_location="cpu")
         self.sem.fc.load_state_dict(weights["sem_fc"])
         self.art.fc.load_state_dict(weights["art_fc"])
         self.art.artifact_encoder.load_state_dict(weights["art_encoder"])

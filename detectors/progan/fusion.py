@@ -5,9 +5,9 @@ CHỨC NĂNG & NHIỆM VỤ CỦA FILE:
     - Định nghĩa lớp CoSpyFusionDetector kết hợp (Late Fusion) 2 nhánh phát hiện độc lập
       của nhánh ProGAN: SemanticDetector và ArtifactDetector.
     - Nạp trọng số đã huấn luyện trước của cả 2 nhánh và đóng băng (freeze) hoàn toàn tham số của chúng.
-    - Huấn luyện một lớp phân loại tuyến tính Linear 2 chiều (self.fc) nhận đầu vào là logits 
+    - Huấn luyện một lớp phân loại tuyến tính Linear 2 chiều (self.fc) nhận đầu vào là logits
       từ cả 2 nhánh [pred_sem, pred_art] để đưa ra phán đoán tổng hợp cuối cùng.
-    - Cung cấp hàm _build_fusion_transforms xây dựng pipeline tiền xử lý ảnh chung (không chuẩn hóa ở DataLoader 
+    - Cung cấp hàm _build_fusion_transforms xây dựng pipeline tiền xử lý ảnh chung (không chuẩn hóa ở DataLoader
       mà chuyển bước chuẩn hóa về từng nhánh trong hàm forward).
 
 DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
@@ -26,9 +26,10 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 
 import torch
 from torchvision import transforms
+
+from .artifact import ArtifactDetector
 from .base import BaseDetector
 from .semantic import SemanticDetector
-from .artifact import ArtifactDetector
 
 
 # =============================================================================
@@ -50,7 +51,7 @@ class CoSpyFusionDetector(BaseDetector):
     #     - Đối tượng CoSpyFusionDetector.
     # -------------------------------------------------------------------------
     def __init__(self, semantic_weights_path, artifact_weights_path, num_classes=1):
-        super(CoSpyFusionDetector, self).__init__()
+        super().__init__()
 
         # Load the semantic detector
         self.sem = SemanticDetector()
@@ -70,12 +71,12 @@ class CoSpyFusionDetector(BaseDetector):
         self.fc = torch.nn.Linear(2, num_classes)
 
         # Transformations inside the forward function
-        self.sem_transform = transforms.Compose([
-            transforms.Normalize(self.sem.mean, self.sem.std)
-        ])
-        self.art_transform = transforms.Compose([
-            transforms.Normalize(self.art.mean, self.art.std)
-        ])
+        self.sem_transform = transforms.Compose(
+            [transforms.Normalize(self.sem.mean, self.sem.std)]
+        )
+        self.art_transform = transforms.Compose(
+            [transforms.Normalize(self.art.mean, self.art.std)]
+        )
 
         # Build transforms (no normalization, done in forward)
         self._build_fusion_transforms()
@@ -98,25 +99,31 @@ class CoSpyFusionDetector(BaseDetector):
         rz_func = transforms.Resize(self.loadSize)
         aug_func = transforms.Lambda(lambda x: data_augment(x, self.aug_config))
 
-        self.train_transform = transforms.Compose([
-            flip_func,
-            aug_func,
-            rz_func,
-            random_crop,
-            transforms.ToTensor(),
-        ])
+        self.train_transform = transforms.Compose(
+            [
+                flip_func,
+                aug_func,
+                rz_func,
+                random_crop,
+                transforms.ToTensor(),
+            ]
+        )
 
-        self.val_transform = transforms.Compose([
-            rz_func,
-            random_crop,
-            transforms.ToTensor(),
-        ])
+        self.val_transform = transforms.Compose(
+            [
+                rz_func,
+                random_crop,
+                transforms.ToTensor(),
+            ]
+        )
 
-        self.test_transform = transforms.Compose([
-            rz_func,
-            center_crop,
-            transforms.ToTensor(),
-        ])
+        self.test_transform = transforms.Compose(
+            [
+                rz_func,
+                center_crop,
+                transforms.ToTensor(),
+            ]
+        )
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
@@ -161,6 +168,6 @@ class CoSpyFusionDetector(BaseDetector):
     #     - Không trả về giá trị (None).
     # -------------------------------------------------------------------------
     def load_weights(self, weights_path):
-        weights = torch.load(weights_path, map_location='cpu')
+        weights = torch.load(weights_path, map_location="cpu")
         self.fc.weight.data = weights["fc.weight"]
         self.fc.bias.data = weights["fc.bias"]

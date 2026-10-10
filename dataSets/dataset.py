@@ -2,14 +2,14 @@
 =============================================================================
 FILE: dataSets/dataset.py
 CHỨC NĂNG & NHIỆM VỤ CỦA FILE:
-    - Định nghĩa các lớp Dataset kế thừa từ torch.utils.data.Dataset phục vụ cho 
+    - Định nghĩa các lớp Dataset kế thừa từ torch.utils.data.Dataset phục vụ cho
       việc nạp và tiền xử lý dữ liệu huấn luyện (training) và kiểm thử (testing):
-        1. TrainDataset: Nạp dữ liệu huấn luyện ảnh thật và ảnh giả AI, gán nhãn, 
+        1. TrainDataset: Nạp dữ liệu huấn luyện ảnh thật và ảnh giả AI, gán nhãn,
            hỗ trợ mô phỏng nén JPEG và xáo trộn ngẫu nhiên.
-        2. CoSpyBenchTestDataset: Bộ nạp dữ liệu kiểm thử cân bằng cho chuẩn Co-Spy-Bench, 
+        2. CoSpyBenchTestDataset: Bộ nạp dữ liệu kiểm thử cân bằng cho chuẩn Co-Spy-Bench,
            ghép cặp ảnh thật từ nhiều nguồn (MS-COCO, Flickr, ...) và ảnh giả từ 22 mô hình AI.
         3. AIGCDetectTestDataset: Bộ nạp dữ liệu kiểm thử theo chuẩn benchmark AIGCDetectionBenchMark.
-        4. FusionTrainDataset: Bộ nạp chuyên biệt cho chế độ huấn luyện Fusion, áp dụng song song 
+        4. FusionTrainDataset: Bộ nạp chuyên biệt cho chế độ huấn luyện Fusion, áp dụng song song
            hai pipeline biến đổi ảnh khác nhau (sem_transform và art_transform) lên cùng một ảnh gốc.
 
 DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
@@ -29,12 +29,13 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 """
 
 import os
+
 import numpy as np
 from PIL import Image
-from tqdm import tqdm
 from torch.utils.data import Dataset
 
 from utils import get_list, png_to_jpeg
+
 from .cospy_real import MSCOCO2017, Flickr30k, OtherReal
 
 
@@ -43,10 +44,10 @@ from .cospy_real import MSCOCO2017, Flickr30k, OtherReal
 # =============================================================================
 class TrainDataset(Dataset):
     """Dataset nạp dữ liệu ảnh Thật (nhãn 0) và Giả (nhãn 1) cho quá trình huấn luyện và validation."""
-    
+
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
-    #     Khởi tạo danh sách đường dẫn ảnh Thật và Giả từ đĩa theo cấu trúc thư mục 
+    #     Khởi tạo danh sách đường dẫn ảnh Thật và Giả từ đĩa theo cấu trúc thư mục
     #     của progan hoặc sd-v1_4, gán nhãn nhị phân tương ứng và xáo trộn ngẫu nhiên.
     # INPUT:
     #     - train_dataset (str): Tên bộ dữ liệu huấn luyện ('progan' hoặc 'sd-v1_4').
@@ -63,11 +64,13 @@ class TrainDataset(Dataset):
 
         # Đọc danh sách file ảnh theo loại dataset
         if train_dataset == "progan":
-            real_list = get_list(os.path.join(root_dir, split), must_contain='0_real')
-            fake_list = get_list(os.path.join(root_dir, split), must_contain='1_fake')
+            real_list = get_list(os.path.join(root_dir, split), must_contain="0_real")
+            fake_list = get_list(os.path.join(root_dir, split), must_contain="1_fake")
         elif train_dataset == "sd-v1_4":
             real_list = get_list(os.path.join(root_dir, "mscoco2017", f"{split}2017"))
-            fake_list = get_list(os.path.join(root_dir, "stable-diffusion-v1-4", f"{split}2017"))
+            fake_list = get_list(
+                os.path.join(root_dir, "stable-diffusion-v1-4", f"{split}2017")
+            )
 
         # Thiết lập nhãn: 0 là ảnh Thật (Real), 1 là ảnh Giả AI (Fake)
         self.labels_dict = {}
@@ -96,7 +99,7 @@ class TrainDataset(Dataset):
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
-    #     Đọc ảnh từ file theo chỉ số idx, chuyển hệ màu RGB, áp dụng nén JPEG giả lập 
+    #     Đọc ảnh từ file theo chỉ số idx, chuyển hệ màu RGB, áp dụng nén JPEG giả lập
     #     (nếu cấu hình) và thực hiện các phép biến đổi transform.
     # INPUT:
     #     - idx (int): Chỉ số phần tử trong danh sách mẫu dữ liệu.
@@ -124,10 +127,10 @@ class TrainDataset(Dataset):
 # =============================================================================
 class CoSpyBenchTestDataset(Dataset):
     """Dataset kiểm thử chuẩn Co-Spy-Bench cân bằng tỷ lệ ảnh thật và ảnh giả AI."""
-    
+
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
-    #     Khởi tạo tập kiểm thử cân bằng số lượng giữa ảnh Thật (MSCOCO/Flickr) 
+    #     Khởi tạo tập kiểm thử cân bằng số lượng giữa ảnh Thật (MSCOCO/Flickr)
     #     và ảnh Giả (sinh từ mô hình AI cụ thể).
     # INPUT:
     #     - dataset (str): Tên tập dữ liệu gốc ('mscoco', 'flickr', ...).
@@ -154,7 +157,7 @@ class CoSpyBenchTestDataset(Dataset):
             self.real = Flickr30k()
         else:
             self.real = OtherReal(dataset)
-        
+
         # Đảm bảo số lượng ảnh thật và ảnh giả bằng nhau để tránh mất cân bằng dữ liệu kiểm thử
         self.num_real = min(num_real, len(self.real), len(self.fake))
         self.image_idx = list(range(self.num_real * 2))
@@ -173,10 +176,10 @@ class CoSpyBenchTestDataset(Dataset):
     # -------------------------------------------------------------------------
     def __len__(self):
         return len(self.image_idx)
-    
+
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
-    #     Lấy ảnh thật (nếu idx < num_real) hoặc ảnh giả AI (nếu idx >= num_real), 
+    #     Lấy ảnh thật (nếu idx < num_real) hoặc ảnh giả AI (nếu idx >= num_real),
     #     áp dụng nén JPEG và pipeline biến đổi ảnh.
     # INPUT:
     #     - idx (int): Chỉ số ảnh cần lấy.
@@ -205,7 +208,7 @@ class CoSpyBenchTestDataset(Dataset):
 # =============================================================================
 class AIGCDetectTestDataset(Dataset):
     """Dataset kiểm thử chuẩn AIGCDetectionBenchMark phục vụ mô hình ProGAN."""
-    
+
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
     #     Khởi tạo dataset kiểm thử từ thư mục AIGCDetectionBenchMark với các ảnh '0_real' và '1_fake'.
@@ -220,15 +223,15 @@ class AIGCDetectTestDataset(Dataset):
         root_path = "data/test/AIGCDetectionBenchMark"
 
         image_dir = os.path.join(root_path, dataset, model)
-        real_list = get_list(image_dir, must_contain='0_real')
-        fake_list = get_list(image_dir, must_contain='1_fake')
+        real_list = get_list(image_dir, must_contain="0_real")
+        fake_list = get_list(image_dir, must_contain="1_fake")
 
         self.labels_dict = {}
         for i in real_list:
             self.labels_dict[i] = 0
         for i in fake_list:
             self.labels_dict[i] = 1
-        
+
         self.total_list = real_list + fake_list
         np.random.shuffle(self.total_list)
 
@@ -270,7 +273,7 @@ class AIGCDetectTestDataset(Dataset):
 # =============================================================================
 class FusionTrainDataset(Dataset):
     """Dataset chuyên biệt cho giai đoạn Late Fusion, sinh ra 2 phiên bản biến đổi ảnh cho 2 nhánh."""
-    
+
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
     #     Đóng gói một TrainDataset gốc cùng với hai pipeline tiền xử lý ảnh riêng biệt:
@@ -300,7 +303,7 @@ class FusionTrainDataset(Dataset):
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
-    #     Đọc 1 ảnh gốc và áp dụng đồng thời cả 2 bộ transform riêng biệt: 
+    #     Đọc 1 ảnh gốc và áp dụng đồng thời cả 2 bộ transform riêng biệt:
     #     sem_transform và art_transform.
     # INPUT:
     #     - i (int): Chỉ số ảnh trong dataset.

@@ -2,7 +2,7 @@
 =============================================================================
 FILE: detectors/progan/base.py
 CHỨC NĂNG & NHIỆM VỤ CỦA FILE:
-    - Định nghĩa lớp cơ sở trừu tượng BaseDetector (Abstract Base Class) cho tất cả các mô hình 
+    - Định nghĩa lớp cơ sở trừu tượng BaseDetector (Abstract Base Class) cho tất cả các mô hình
       phát hiện ảnh AI trong nhánh huấn luyện ProGAN.
     - Cấu hình các thông số chuẩn hóa mặc định (chuẩn ImageNet: mean, std).
     - Thiết lập độ phân giải chuẩn (loadSize=256, cropSize=224).
@@ -21,9 +21,11 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 =============================================================================
 """
 
-import torch
 from abc import ABC, abstractmethod
+
+import torch
 from torchvision import transforms
+
 from utils import data_augment
 
 
@@ -35,7 +37,7 @@ class BaseDetector(torch.nn.Module, ABC):
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
-    #     Khởi tạo các tham số tiền xử lý chuẩn: giá trị chuẩn hóa ImageNet, 
+    #     Khởi tạo các tham số tiền xử lý chuẩn: giá trị chuẩn hóa ImageNet,
     #     kích thước ảnh loadSize (256) và cropSize (224), cùng các xác suất augmentation.
     # INPUT:
     #     - Không có tham số đầu vào.
@@ -43,7 +45,7 @@ class BaseDetector(torch.nn.Module, ABC):
     #     - Đối tượng BaseDetector.
     # -------------------------------------------------------------------------
     def __init__(self):
-        super(BaseDetector, self).__init__()
+        super().__init__()
 
         # Default normalization (ImageNet)
         self.mean = [0.485, 0.456, 0.406]
@@ -57,7 +59,7 @@ class BaseDetector(torch.nn.Module, ABC):
         self.blur_prob = 0.0
         self.blur_sig = [0.0, 3.0]
         self.jpg_prob = 0.0
-        self.jpg_method = ['cv2', 'pil']
+        self.jpg_method = ["cv2", "pil"]
         self.jpg_qual = list(range(30, 101))
 
     # -------------------------------------------------------------------------
@@ -80,7 +82,7 @@ class BaseDetector(torch.nn.Module, ABC):
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
-    #     Xây dựng 3 bộ transforms (train_transform, val_transform, test_transform) 
+    #     Xây dựng 3 bộ transforms (train_transform, val_transform, test_transform)
     #     sử dụng torchvision transforms kết hợp augmentation tùy biến.
     # INPUT:
     #     - Không có tham số ngoài self.
@@ -94,28 +96,34 @@ class BaseDetector(torch.nn.Module, ABC):
         rz_func = transforms.Resize(self.loadSize)
         aug_func = transforms.Lambda(lambda x: data_augment(x, self.aug_config))
 
-        self.train_transform = transforms.Compose([
-            rz_func,
-            aug_func,
-            random_crop,
-            flip_func,
-            transforms.ToTensor(),
-            transforms.Normalize(mean=self.mean, std=self.std),
-        ])
+        self.train_transform = transforms.Compose(
+            [
+                rz_func,
+                aug_func,
+                random_crop,
+                flip_func,
+                transforms.ToTensor(),
+                transforms.Normalize(mean=self.mean, std=self.std),
+            ]
+        )
 
-        self.val_transform = transforms.Compose([
-            rz_func,
-            random_crop,
-            transforms.ToTensor(),
-            transforms.Normalize(mean=self.mean, std=self.std),
-        ])
+        self.val_transform = transforms.Compose(
+            [
+                rz_func,
+                random_crop,
+                transforms.ToTensor(),
+                transforms.Normalize(mean=self.mean, std=self.std),
+            ]
+        )
 
-        self.test_transform = transforms.Compose([
-            rz_func,
-            center_crop,
-            transforms.ToTensor(),
-            transforms.Normalize(mean=self.mean, std=self.std),
-        ])
+        self.test_transform = transforms.Compose(
+            [
+                rz_func,
+                center_crop,
+                transforms.ToTensor(),
+                transforms.Normalize(mean=self.mean, std=self.std),
+            ]
+        )
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
@@ -165,5 +173,5 @@ class BaseDetector(torch.nn.Module, ABC):
     #     - Không trả về giá trị (None).
     # -------------------------------------------------------------------------
     def load_weights(self, weights_path):
-        weights = torch.load(weights_path, map_location='cpu')
+        weights = torch.load(weights_path, map_location="cpu")
         self.load_state_dict(weights, strict=False)

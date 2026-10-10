@@ -18,8 +18,9 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 =============================================================================
 """
 
-import torch
 from abc import ABC, abstractmethod
+
+import torch
 
 
 class BaseDetector(torch.nn.Module, ABC):
@@ -34,7 +35,7 @@ class BaseDetector(torch.nn.Module, ABC):
     # OUTPUT: Đối tượng BaseDetector
     # -------------------------------------------------------------------------
     def __init__(self):
-        super(BaseDetector, self).__init__()
+        super().__init__()
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG: Phương thức trừu tượng định nghĩa các bước tiền xử lý ảnh (transforms)
@@ -44,21 +45,19 @@ class BaseDetector(torch.nn.Module, ABC):
     @abstractmethod
     def _build_transforms(self):
         """Xây dựng các bước tiền xử lý ảnh (transforms) cho tập train, val và test."""
-        pass
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG: Phương thức trừu tượng tính toán lan truyền xuôi (Forward pass)
-    # INPUT: 
+    # INPUT:
     #   - x (torch.Tensor): Batch ảnh đầu vào có kích thước (B, C, H, W).
     #   - return_feat (bool, optional): Có trả về vector đặc trưng hay không. Mặc định là False.
-    # OUTPUT: 
+    # OUTPUT:
     #   - outputs (torch.Tensor): Logit đầu ra kích thước (B, 1) hoặc tuple (feat, outputs).
     # -------------------------------------------------------------------------
     @abstractmethod
     def forward(self, x, return_feat=False):
         """Lan truyền xuôi (Forward pass) của mạng nơ-ron."""
-        pass
-    
+
     # -------------------------------------------------------------------------
     # CHỨC NĂNG: Dự đoán xác suất ảnh do AI tạo ra (0.0 đến 1.0)
     # INPUT:
@@ -100,5 +99,5 @@ class BaseDetector(torch.nn.Module, ABC):
     # -------------------------------------------------------------------------
     def load_weights(self, weights_path):
         """Nạp trọng số từ file .pth vào mô hình."""
-        weights = torch.load(weights_path, map_location='cpu')
+        weights = torch.load(weights_path, map_location="cpu")
         self.load_state_dict(weights, strict=False)
