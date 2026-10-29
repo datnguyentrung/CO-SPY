@@ -1,15 +1,15 @@
 # Source: https://huggingface.co/datasets/ruojiruoli/Co-Spy-Bench
 # Source: https://huggingface.co/datasets/ruojiruoli/Co-Spy-Misc
 import os
-import urllib
 import tarfile
+import urllib
 import zipfile
+
 import requests
 from tqdm import tqdm
 
-
 # List of evaluated datasets
-DATASET_LIST = ['mscoco', 'flickr', 'cc3m', 'textcaps', 'sbu']
+DATASET_LIST = ["mscoco", "flickr", "cc3m", "textcaps", "sbu"]
 
 # List of evaluated generative models
 MODEL_LIST = [
@@ -55,7 +55,7 @@ def get_download_url(dataset, model):
     return URL_FORMAT.format(dataset=dataset, model=quoted_model)
 
 
-def streaming_download(url, dest_path, max_retries=5, chunk_size=1024*1024):
+def streaming_download(url, dest_path, max_retries=5, chunk_size=1024 * 1024):
     headers = {}
     downloaded = 0
     mode = "wb"
@@ -70,20 +70,31 @@ def streaming_download(url, dest_path, max_retries=5, chunk_size=1024*1024):
                 total = r.headers.get("Content-Length")
                 if total:
                     total = downloaded + int(total)
-                with open(dest_path, mode) as f, tqdm(
-                    total=total, initial=downloaded, unit="B", unit_scale=True,
-                    desc=os.path.basename(dest_path), leave=False
-                ) as pbar:
+                with (
+                    open(dest_path, mode) as f,
+                    tqdm(
+                        total=total,
+                        initial=downloaded,
+                        unit="B",
+                        unit_scale=True,
+                        desc=os.path.basename(dest_path),
+                        leave=False,
+                    ) as pbar,
+                ):
                     for chunk in r.iter_content(chunk_size=chunk_size):
                         f.write(chunk)
                         downloaded += len(chunk)
                         pbar.update(len(chunk))
             return
-        except (requests.exceptions.ChunkedEncodingError,
-                requests.exceptions.ConnectionError,
-                requests.exceptions.Timeout) as e:
+        except (
+            requests.exceptions.ChunkedEncodingError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ) as e:
             if attempt < max_retries - 1:
-                print(f"\nDownload interrupted ({downloaded} bytes), retrying ({attempt+1}/{max_retries})...")
+                print(
+                    f"\nDownload interrupted ({downloaded} bytes), retrying ({attempt + 1}/{max_retries})..."
+                )
             else:
                 raise RuntimeError(f"Failed after {max_retries} retries: {e}") from e
 
@@ -94,7 +105,7 @@ def extract_tar_gz_files(tar_filepath):
 
 
 def extract_zip_file(zip_filepath, dest_dir):
-    with zipfile.ZipFile(zip_filepath, 'r') as zip_ref:
+    with zipfile.ZipFile(zip_filepath, "r") as zip_ref:
         zip_ref.extractall(dest_dir)
 
 

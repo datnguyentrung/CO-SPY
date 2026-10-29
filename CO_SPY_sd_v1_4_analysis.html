@@ -1,0 +1,1665 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CO-SPY: Phân Tích Mã Nguồn & Trực Quan Hóa Hệ Thống (sd_v1_4)</title>
+    <!-- Google Fonts: Plus Jakarta Sans & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Mermaid.js -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+    <style>
+
+        :root {
+            /* Distinctive Deep Lab Palette */
+            --bg-body: #0b0f17;
+            --bg-subtle: #111724;
+            --bg-card: #151d2e;
+            --bg-card-hover: #1c273d;
+            --bg-sidebar: #080c14;
+            --border-color: #232f45;
+            --border-hover: #388bfd;
+            
+            --text-primary: #f0f4fc;
+            --text-secondary: #9cb0d1;
+            --text-muted: #5e718d;
+            
+            --accent-cyan: #38bdf8;
+            --accent-blue: #3b82f6;
+            --accent-emerald: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-rose: #f43f5e;
+            --accent-violet: #a855f7;
+            
+            --code-bg: #070a10;
+            --sidebar-width: 290px;
+            --header-height: 68px;
+            --shadow-card: 0 4px 20px -2px rgba(0, 0, 0, 0.45), 0 0 1px 1px rgba(255, 255, 255, 0.04);
+            --shadow-hover: 0 12px 32px -4px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(56, 189, 248, 0.3);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-primary);
+            line-height: 1.65;
+            letter-spacing: -0.01em;
+            overflow-x: hidden;
+            display: flex;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--bg-body);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #232f45;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #3a4d6f;
+        }
+
+        /* Sidebar Navigation */
+        #sidebar {
+            width: var(--sidebar-width);
+            height: 100vh;
+            background-color: var(--bg-sidebar);
+            border-right: 1px solid var(--border-color);
+            position: fixed;
+            top: 0;
+            left: 0;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .brand {
+            padding: 22px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: linear-gradient(180deg, rgba(16, 185, 129, 0.06) 0%, transparent 100%);
+        }
+
+        .brand-badge {
+            background: linear-gradient(135deg, #059669, #10b981);
+            color: #ffffff;
+            padding: 4px 9px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+        }
+
+        .brand-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.3px;
+        }
+
+        .nav-section-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: var(--text-muted);
+            padding: 20px 20px 8px 20px;
+        }
+
+        .nav-list {
+            list-style: none;
+            padding: 0 12px;
+        }
+
+        .nav-item {
+            margin-bottom: 3px;
+        }
+
+        .nav-item a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 14px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 13.5px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .nav-item a:hover {
+            color: var(--accent-cyan);
+            background-color: rgba(56, 189, 248, 0.08);
+            transform: translateX(2px);
+        }
+
+        .nav-item a.active {
+            color: #ffffff;
+            background: linear-gradient(90deg, rgba(56, 189, 248, 0.15) 0%, rgba(59, 130, 246, 0.08) 100%);
+            border-left: 3px solid var(--accent-cyan);
+        }
+
+        .nav-icon {
+            font-size: 15px;
+            width: 20px;
+            text-align: center;
+            opacity: 0.85;
+        }
+
+        /* Main Content Container */
+        #main-container {
+            margin-left: var(--sidebar-width);
+            flex: 1;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: radial-gradient(circle at 80% 0%, rgba(56, 189, 248, 0.03) 0%, transparent 40%),
+                        radial-gradient(circle at 20% 50%, rgba(168, 85, 247, 0.02) 0%, transparent 35%);
+        }
+
+        /* Top Header */
+        #top-header {
+            height: var(--header-height);
+            background-color: rgba(11, 15, 23, 0.82);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 90;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 36px;
+        }
+
+        .header-title-wrapper h1 {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.3px;
+        }
+
+        .header-title-wrapper p {
+            font-size: 12.5px;
+            color: var(--text-muted);
+            margin-top: 1px;
+        }
+
+        .search-box-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 9px;
+            padding: 7px 16px;
+            width: 320px;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+        }
+
+        .search-box-wrapper:focus-within {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+            background-color: var(--bg-card-hover);
+        }
+
+        .search-input {
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            font-size: 13px;
+            width: 100%;
+            outline: none;
+            font-family: inherit;
+        }
+
+        .search-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        /* Content Body */
+        .content-body {
+            padding: 36px;
+            max-width: 1420px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        /* Sections */
+        section {
+            margin-bottom: 56px;
+            scroll-margin-top: 90px;
+        }
+
+        .section-header {
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .section-header h2 {
+            font-size: 23px;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            letter-spacing: -0.4px;
+        }
+
+        .section-badge {
+            font-size: 11.5px;
+            font-weight: 600;
+            padding: 4px 12px;
+            border-radius: 20px;
+            background: rgba(56, 189, 248, 0.12);
+            color: var(--accent-cyan);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            letter-spacing: 0.3px;
+        }
+
+        /* Cards and Callouts */
+        .card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 26px;
+            margin-bottom: 22px;
+            box-shadow: var(--shadow-card);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .card:hover {
+            border-color: #314261;
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            letter-spacing: -0.2px;
+        }
+
+        .alert {
+            padding: 16px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 13.8px;
+            border-left: 4px solid;
+            display: flex;
+            gap: 14px;
+            align-items: flex-start;
+            line-height: 1.6;
+        }
+
+        .alert-info {
+            background: rgba(56, 189, 248, 0.08);
+            border-color: var(--accent-cyan);
+            color: #d8e5f8;
+        }
+
+        .alert-success {
+            background: rgba(16, 185, 129, 0.08);
+            border-color: var(--accent-emerald);
+            color: #d1fae5;
+        }
+
+        .alert-warning {
+            background: rgba(245, 158, 11, 0.08);
+            border-color: var(--accent-amber);
+            color: #fef3c7;
+        }
+
+        /* Graph Containers */
+        .graph-card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            margin-bottom: 32px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: var(--shadow-card);
+        }
+
+        .graph-header {
+            padding: 16px 24px;
+            background-color: rgba(21, 29, 46, 0.95);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 14px;
+        }
+
+        .graph-title {
+            font-size: 15.5px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .graph-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-ctrl {
+            background-color: var(--bg-subtle);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 6px 12px;
+            border-radius: 7px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-family: inherit;
+        }
+
+        .btn-ctrl:hover {
+            background-color: var(--bg-card-hover);
+            color: var(--text-primary);
+            border-color: var(--accent-cyan);
+            transform: translateY(-1px);
+        }
+
+        .graph-body {
+            padding: 32px 24px;
+            overflow-x: auto;
+            display: flex;
+            justify-content: center;
+            background-color: var(--code-bg);
+            min-height: 320px;
+            position: relative;
+        }
+
+        .graph-body .mermaid {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            max-width: 100%;
+        }
+
+        /* SVG in Mermaid formatting */
+        .mermaid svg {
+            max-width: 100% !important;
+            height: auto !important;
+        }
+
+        /* Legend Colors */
+        .legend-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            padding: 12px 24px;
+            background: rgba(11, 15, 23, 0.85);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+
+        /* Code Blocks */
+        pre, code {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+
+        code.inline {
+            background-color: rgba(56, 189, 248, 0.1);
+            color: #7dd3fc;
+            padding: 2px 7px;
+            border-radius: 5px;
+            font-size: 88%;
+            border: 1px solid rgba(56, 189, 248, 0.18);
+        }
+
+        pre.code-block {
+            background-color: var(--code-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 9px;
+            padding: 18px;
+            overflow-x: auto;
+            color: #e2e8f0;
+            font-size: 13px;
+            line-height: 1.6;
+            margin: 14px 0;
+        }
+
+        /* Interactive Detail Modal / Drawer */
+        #node-modal {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 520px;
+            height: 100vh;
+            background-color: var(--bg-card);
+            border-left: 1px solid var(--border-color);
+            box-shadow: -12px 0 40px rgba(0, 0, 0, 0.7);
+            z-index: 200;
+            transform: translateX(100%);
+            transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #node-modal.open {
+            transform: translateX(0);
+        }
+
+        .modal-header {
+            padding: 22px 24px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            background: rgba(11, 15, 23, 0.95);
+        }
+
+        .modal-title-group h3 {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            font-family: 'JetBrains Mono', monospace;
+            word-break: break-all;
+        }
+
+        .modal-title-group .file-ref {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0 6px;
+            line-height: 1;
+            transition: color 0.15s;
+        }
+
+        .close-btn:hover {
+            color: var(--text-primary);
+        }
+
+        .modal-content {
+            padding: 24px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .meta-group {
+            margin-bottom: 20px;
+        }
+
+        .meta-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            font-weight: 700;
+            margin-bottom: 7px;
+        }
+
+        .meta-value {
+            font-size: 13.8px;
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .meta-box {
+            background-color: var(--bg-body);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 12.8px;
+            color: #cbd5e1;
+            font-family: 'JetBrains Mono', monospace;
+            line-height: 1.5;
+        }
+
+        /* Tables */
+        table.custom-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 13.2px;
+            margin: 16px 0;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+
+        table.custom-table th, table.custom-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            text-align: left;
+        }
+
+        table.custom-table th {
+            background-color: rgba(17, 23, 36, 0.95);
+            color: var(--text-primary);
+            font-weight: 600;
+            border-bottom: 2px solid var(--border-color);
+            letter-spacing: 0.2px;
+        }
+
+        table.custom-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        table.custom-table tr:hover td {
+            background-color: rgba(255, 255, 255, 0.02);
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            #sidebar {
+                transform: translateX(-100%);
+            }
+            #sidebar.open {
+                transform: translateX(0);
+            }
+            #main-container {
+                margin-left: 0;
+            }
+            #node-modal {
+                width: 100%;
+            }
+            #top-header {
+                padding: 0 20px;
+            }
+            .content-body {
+                padding: 20px;
+            }
+        }
+
+        /* Grid */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 22px;
+        }
+
+    </style>
+</head>
+<body>
+<!-- SIDEBAR NAVIGATION -->
+    <nav id="sidebar">
+        <div class="brand">
+            <span class="brand-badge">CVPR '25</span>
+            <div>
+                <div class="brand-title">CO-SPY Detector</div>
+                <div style="font-size: 11px; color: var(--text-secondary);">Kiến trúc & Triển khai sd_v1_4</div>
+            </div>
+        </div>
+        <div class="nav-section-title">Nội Dung Phân Tích</div>
+        <ul class="nav-list">
+            <li class="nav-item"><a href="#sec-overview"><span class="nav-icon">📌</span> 1. Tổng quan & Xác minh sd_v1_4</a></li>
+            <li class="nav-item"><a href="#sec-graph1"><span class="nav-icon">🏛️</span> Graph 1: Kiến trúc Tổng thể</a></li>
+            <li class="nav-item"><a href="#sec-graph2"><span class="nav-icon">🚀</span> Graph 2: Khởi chạy Entry Point</a></li>
+            <li class="nav-item"><a href="#sec-graph3"><span class="nav-icon">🔄</span> Graph 3: Function Call Graph</a></li>
+            <li class="nav-item"><a href="#sec-graph4"><span class="nav-icon">🌊</span> Graph 4: Data Flow Graph</a></li>
+            <li class="nav-item"><a href="#sec-graph5"><span class="nav-icon">🏋️</span> Graph 5: Training Pipeline</a></li>
+            <li class="nav-item"><a href="#sec-graph6"><span class="nav-icon">🧠</span> Graph 6: Model & Tensor Flow</a></li>
+            <li class="nav-item"><a href="#sec-graph7"><span class="nav-icon">🔍</span> Graph 7: Inference Workflow</a></li>
+            <li class="nav-item"><a href="#sec-graph8"><span class="nav-icon">📦</span> Graph 8: Module Dependencies</a></li>
+            <li class="nav-item"><a href="#sec-functions"><span class="nav-icon">📖</span> 2. Tra cứu Chi tiết Các Hàm</a></li>
+            <li class="nav-item"><a href="#sec-summary"><span class="nav-icon">📋</span> 3. Báo cáo & Tổng kết</a></li>
+        </ul>
+        <div style="padding: 20px; margin-top: auto; border-top: 1px solid var(--border-color); font-size: 11.5px; color: var(--text-muted);">
+            Phiên bản tài liệu: 1.0.0<br>
+            Tác giả: Phân tích & Trực quan hóa Source Code CO-SPY CVPR 2025
+        </div>
+    </nav>
+
+    <!-- MAIN CONTAINER -->
+    <div id="main-container">
+        <!-- TOP HEADER -->
+        <header id="top-header">
+            <div class="header-title-wrapper">
+                <h1>Báo Cáo Phân Tích Kỹ Thuật CO-SPY (sd_v1_4)</h1>
+                <p>Khảo sát mã nguồn thực tế, kiểm chứng lời gọi hàm, cấu trúc tensor và luồng dữ liệu</p>
+            </div>
+            <div class="search-box-wrapper">
+                <span>🔎</span>
+                <input type="text" id="global-search" class="search-input" placeholder="Tìm tên hàm, class hoặc file..." oninput="handleGlobalSearch(this.value)">
+            </div>
+        </header>
+
+        <!-- CONTENT BODY -->
+        <main class="content-body">
+
+            <!-- SECTION 1: TỔNG QUAN VÀ XÁC MINH PHẠM VI sd_v1_4 -->
+            <section id="sec-overview">
+                <div class="section-header">
+                    <h2>1. Tổng quan & Xác minh Triển khai sd_v1_4</h2>
+                    <span class="section-badge">Source Verification</span>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">🔍 Kết quả khảo sát Repository thực tế</h3>
+                    <p style="margin-bottom: 14px;">Qua truy vết thực tế cây thư mục, lịch sử git commit và mã nguồn của dự án:</p>
+                    
+                    <div class="alert alert-success">
+                        <span>✅</span>
+                        <div>
+                            <strong>Xác nhận phạm vi của `sd_v1_4` trong dự án:</strong><br>
+                            - <strong>Nhánh Git:</strong> Repository đang ở nhánh <code class="inline">main</code> (commit <code class="inline">2cdbc0b</code>).<br>
+                            - <strong>Ý nghĩa thực tế của `sd_v1_4`:</strong> Đây là <strong>mô hình triển khai chính (Detector configuration)</strong> dành riêng cho việc phát hiện ảnh sinh bởi mô hình khuếch tán tiềm ẩn Stable Diffusion (dataset DRCT-2M / SD v1.4), phân biệt với mô hình <code class="inline">progan</code> (dành cho CNNDet).<br>
+                            - <strong>Các thành phần cấu thành `sd_v1_4`:</strong>
+                            <ul style="margin-top: 6px; padding-left: 20px;">
+                                <li>Package mã nguồn mô hình: <code class="inline">detectors/sd_v1_4/</code> (gồm <code class="inline">semantic.py</code>, <code class="inline">artifact.py</code>, <code class="inline">fusion.py</code>, <code class="inline">end2end.py</code>, <code class="inline">base.py</code>).</li>
+                                <li>Thư mục dữ liệu huấn luyện: <code class="inline">data/train/sd-v1_4/</code> (MSCOCO2017 & Stable Diffusion v1-4).</li>
+                                <li>Thư mục trọng số: <code class="inline">pretrained/sd-v1_4/</code> và <code class="inline">ckpt/sd-v1_4/</code>.</li>
+                                <li>Bộ dữ liệu benchmark đánh giá: <code class="inline">data/test/Co-Spy-Bench/</code> (22 mô hình sinh AI, 5 tập ảnh gốc).</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="grid-2" style="margin-top: 18px;">
+                        <div class="card" style="margin-bottom: 0;">
+                            <h4 style="color: var(--accent-cyan); font-size: 15px; margin-bottom: 10px;">🌟 Kiến trúc đề xuất chính (Best Practice)</h4>
+                            <p style="font-size: 13.5px; color: var(--text-secondary);">
+                                CO-SPY giải quyết mâu thuẫn giữa <strong>đặc trưng ngữ nghĩa toàn cục</strong> (CLIP ViT-SO400M) và <strong>đặc trưng khiếm khuyết điểm ảnh cục bộ</strong> (SD VAE residual).<br>
+                                Tác giả huấn luyện độc lập 2 nhánh (<code class="inline">--branch semantic</code> và <code class="inline">--branch artifact</code>), sau đó đóng băng cả 2 nhánh và chỉ huấn luyện 1 lớp kết hợp <code class="inline">Linear(2, 1)</code> trong 1 epoch (Fusion Calibration). Đạt <strong>96.0 - 96.6 mAP</strong> trên Co-Spy-Bench.
+                            </p>
+                        </div>
+                        <div class="card" style="margin-bottom: 0;">
+                            <h4 style="color: var(--accent-orange); font-size: 15px; margin-bottom: 10px;">⚡ Tính năng đặc thù chỉ có ở sd_v1_4</h4>
+                            <p style="font-size: 13.5px; color: var(--text-secondary);">
+                                1. <strong>Feature-space Interpolation:</strong> Khi huấn luyện nhánh Semantic trên SD, kích hoạt flag <code class="inline">--feat_interp</code> để nội suy đặc trưng CLIP ngẫu nhiên.<br>
+                                2. <strong>Cosine Annealing LR per batch:</strong> Tự động điều chỉnh LR theo từng batch step (khác với ProGAN giảm step LR mỗi 10 epoch).<br>
+                                3. <strong>Bias floor penalty:</strong> Thêm phạt <code class="inline">relu(2.0 - b)</code> trong loss function ở bước Fusion.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- GRAPH 1: TỔNG QUAN KIẾN TRÚC HỆ THỐNG -->
+            <section id="sec-graph1">
+                <div class="section-header">
+                    <h2>Graph 1 — Tổng quan Kiến trúc Hệ thống CO-SPY</h2>
+                    <span class="section-badge">Architecture Overview</span>
+                </div>
+                <div class="graph-card">
+                    <div class="graph-header">
+                        <div class="graph-title">🏛️ Bản đồ phân rã module và mối quan hệ chức năng</div>
+                        <div class="graph-controls">
+                            <button class="btn-ctrl" onclick="zoomGraph('g1', 1.2)">🔍 Phóng to</button>
+                            <button class="btn-ctrl" onclick="zoomGraph('g1', 0.8)">🔍 Thu nhỏ</button>
+                            <button class="btn-ctrl" onclick="resetGraph('g1')">🔄 Mặc định</button>
+                        </div>
+                    </div>
+                    <div class="legend-bar">
+                        <div class="legend-item"><div class="legend-color" style="background: #238636;"></div> Entry Point / CLI</div>
+                        <div class="legend-item"><div class="legend-color" style="background: #1f6feb;"></div> Pipeline Điều khiển (Train/Eval)</div>
+                        <div class="legend-item"><div class="legend-color" style="background: #8957e5;"></div> Nhánh Ngữ nghĩa (CLIP)</div>
+                        <div class="legend-item"><div class="legend-color" style="background: #d29922;"></div> Nhánh Sai số Tái tạo (VAE)</div>
+                        <div class="legend-item"><div class="legend-color" style="background: #da3633;"></div> Lớp Kết hợp (Fusion / Head)</div>
+                        <div class="legend-item"><div class="legend-color" style="background: #39c5bb;"></div> Data & Utilities</div>
+                    </div>
+                    <div class="graph-body" id="g1">
+                        <div class="mermaid">
+flowchart TD
+    %% Khai báo Entry Point
+    EP["main.py::main(args)<br><b>Entry Point Điều Phối</b>"]:::cEntry
+
+    %% Khối Data
+    subgraph S_DATA["📁 Module Dữ Liệu (dataSets/)"]
+        DS_TR["TrainDataset<br>MSCOCO (0) vs SD v1.4 (1)"]:::cData
+        DS_FUS["FusionTrainDataset<br>Dual Transform (Sem + Art)"]:::cData
+        DS_TEST["CoSpyBenchTestDataset<br>22 AI Models vs 5 Real Sets"]:::cData
+    end
+
+    %% Khối Module Mô hình
+    subgraph S_MODEL["🧠 Module Mô Hình (detectors/sd_v1_4/)"]
+        BASE["BaseDetector<br>Abstract Interface"]:::cModel
+        SEM["SemanticDetector<br>OpenCLIP ViT-SO400M-14 (Frozen)<br>Linear(1152, 1)"]:::cSem
+        ART["ArtifactDetector<br>AutoencoderKL SD VAE (Frozen)<br>VAEReconEncoder + Linear(512, 1)"]:::cArt
+        FUSION["CoSpyFusionDetector<br>Frozen(Sem + Art)<br>Linear(2, 1) Calibrator"]:::cFusion
+        E2E["End2EndDetector<br>Feature Dropout (30%)<br>Linear(1664, 1)"]:::cFusion
+    end
+
+    %% Khối Execution
+    subgraph S_EXEC["⚡ Module Thực Thi"]
+        TR["train.py::Trainer<br>AdamW + CosineAnnealingLR<br>BCEWithLogitsLoss"]:::cTrain
+        DET["evaluate.py::Detector<br>Benchmark AP & Accuracy<br>Interactive Single Scan"]:::cTrain
+    end
+
+    %% Khối Utils
+    subgraph S_UTIL["🛠️ Module Tiện ích (utils.py)"]
+        AUG["data_augment<br>Gaussian Blur + JPEG Nén"]:::cData
+        INTERP["_mix_features<br>Feature Mixup Beta(0.2, 0.2)"]:::cData
+        EVAL_FN["evaluate<br>sklearn AP + Acc"]:::cData
+    end
+
+    %% Liên kết luồng
+    EP -->|--phase train| TR
+    EP -->|--phase eval| DET
+    EP -->|--phase test| DET
+
+    TR -->|Nạp dữ liệu| DS_TR
+    TR -->|Nạp dữ liệu Fusion| DS_FUS
+    TR -->|Khởi tạo/Cập nhật| SEM
+    TR -->|Khởi tạo/Cập nhật| ART
+    TR -->|Khởi tạo/Cập nhật| FUSION
+    TR -->|Khởi tạo/Cập nhật| E2E
+    TR -->|Nội suy đặc trưng| INTERP
+    TR -->|Đánh giá val| EVAL_FN
+
+    DET -->|Đánh giá hàng loạt| DS_TEST
+    DET -->|Nạp trọng số & suy luận| FUSION
+    DET -->|Tính metric| EVAL_FN
+
+    SEM -.->|Kế thừa| BASE
+    ART -.->|Kế thừa| BASE
+    FUSION -.->|Bọc 2 nhánh con| SEM
+    FUSION -.->|Bọc 2 nhánh con| ART
+    E2E -.->|Ghép nối trực tiếp| SEM
+    E2E -.->|Ghép nối trực tiếp| ART
+
+    DS_TR -->|Augmentation| AUG
+    DS_FUS -->|Augmentation| AUG
+
+    classDef cEntry fill:#238636,stroke:#2ea043,stroke-width:2px,color:#fff;
+    classDef cTrain fill:#1f6feb,stroke:#388bfd,stroke-width:2px,color:#fff;
+    classDef cSem fill:#8957e5,stroke:#a371f7,stroke-width:2px,color:#fff;
+    classDef cArt fill:#d29922,stroke:#e3b341,stroke-width:2px,color:#000;
+    classDef cFusion fill:#da3633,stroke:#f85149,stroke-width:2px,color:#fff;
+    classDef cData fill:#238636,stroke:#39c5bb,stroke-width:2px,color:#fff;
+    classDef cModel fill:#30363d,stroke:#8b949e,stroke-width:1px,color:#f0f6fc;
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- GRAPH 2: LUỒNG KHỞI CHẠY ENTRY POINT -->
+            <section id="sec-graph2">
+                <div class="section-header">
+                    <h2>Graph 2 — Luồng Khởi Chạy Chương Trình (Startup & Dispatch Flow)</h2>
+                    <span class="section-badge">Entry Point Trace</span>
+                </div>
+                <div class="graph-card">
+                    <div class="graph-header">
+                        <div class="graph-title">🚀 Phân nhánh từ CLI main.py sang Trainer / Detector</div>
+                        <div class="graph-controls">
+                            <button class="btn-ctrl" onclick="zoomGraph('g2', 1.2)">🔍 Phóng to</button>
+                            <button class="btn-ctrl" onclick="zoomGraph('g2', 0.8)">🔍 Thu nhỏ</button>
+                            <button class="btn-ctrl" onclick="resetGraph('g2')">🔄 Mặc định</button>
+                        </div>
+                    </div>
+                    <div class="graph-body" id="g2">
+                        <div class="mermaid">
+flowchart TD
+    CMD["CLI Command:<br>python main.py ..."]:::cEntry --> PARSE["argparse.ArgumentParser<br>(main.py::L107-L165)"]
+    PARSE --> SEED["seed_torch(args.seed)<br>(utils.py::L60)"]
+    SEED --> DEV["args.device = 'cuda:X' or 'cpu'<br>(main.py::L171)"]
+    DEV --> MAIN["main(args)<br>(main.py::L49)"]
+
+    MAIN --> COND{args.phase}
+
+    %% Nhánh 1: Train
+    COND -->|phase == 'train'| TR_INIT["Trainer.__init__(...)<br>(train.py::L69)<br>- Nạp model detectors.sd_v1_4<br>- Khởi tạo AdamW + BCEWithLogitsLoss"]:::cTrain
+    TR_INIT --> TR_RUN["trainer.train()<br>(train.py::L332)<br>Vòng lặp Epoch & Validation"]:::cTrain
+
+    %% Nhánh 2: Eval
+    COND -->|phase == 'eval'| DET_INIT1["Detector.__init__(...)<br>(evaluate.py::L61)<br>- Nạp model & weights<br>- model.eval()"]:::cSem
+    DET_INIT1 --> DET_BENCH["detector.evaluate_benchmark()<br>(evaluate.py::L173)<br>Quét 22 AI models trên Co-Spy-Bench"]:::cSem
+
+    %% Nhánh 3: Test
+    COND -->|phase == 'test'| DET_INIT2["Detector.__init__(...)<br>(evaluate.py::L61)<br>- Nạp weights (pretrained/checkpoint)<br>- model.eval()"]:::cArt
+    DET_INIT2 --> DET_SCAN["detector.scan()<br>(evaluate.py::L297)<br>Vòng lặp quét ảnh tương tác"]:::cArt
+
+    COND -->|Khác| ERR["raise ValueError('Unknown phase')<br>(main.py::L101)"]:::cErr
+
+    classDef cEntry fill:#238636,stroke:#2ea043,stroke-width:2px,color:#fff;
+    classDef cTrain fill:#1f6feb,stroke:#388bfd,stroke-width:2px,color:#fff;
+    classDef cSem fill:#8957e5,stroke:#a371f7,stroke-width:2px,color:#fff;
+    classDef cArt fill:#d29922,stroke:#e3b341,stroke-width:2px,color:#000;
+    classDef cErr fill:#da3633,stroke:#f85149,stroke-width:2px,color:#fff;
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- GRAPH 3: FUNCTION CALL GRAPH -->
+            <section id="sec-graph3">
+                <div class="section-header">
+                    <h2>Graph 3 — Function Call Graph (Mạng Lưới Gọi Hàm Thực Tế)</h2>
+                    <span class="section-badge">Directed Call Graph</span>
+                </div>
+                <div class="graph-card">
+                    <div class="graph-header">
+                        <div class="graph-title">🔄 Caller → Function → Callee (Bấm vào node để xem chi tiết)</div>
+                        <div class="graph-controls">
+                            <button class="btn-ctrl" onclick="zoomGraph('g3', 1.2)">🔍 Phóng to</button>
+                            <button class="btn-ctrl" onclick="zoomGraph('g3', 0.8)">🔍 Thu nhỏ</button>
+                            <button class="btn-ctrl" onclick="resetGraph('g3')">🔄 Mặc định</button>
+                        </div>
+                    </div>
+                    <div class="graph-body" id="g3">
+                        <div class="mermaid">
+flowchart LR
+    subgraph ENTRY["Entry Point"]
+        N_main["main.py::main"]:::cEntry
+    end
+
+    subgraph TRAIN_FLOW["Training Calls"]
+        N_tr_init["Trainer.__init__"]:::cTrain
+        N_tr_train["Trainer.train"]:::cTrain
+        N_tr_step["Trainer.train_step"]:::cTrain
+        N_mix["Trainer._mix_features"]:::cTrain
+        N_sched["Trainer._build_scheduler"]:::cTrain
+    end
+
+    subgraph EVAL_FLOW["Evaluation & Inference Calls"]
+        N_det_init["Detector.__init__"]:::cSem
+        N_det_bench["Detector.evaluate_benchmark"]:::cSem
+        N_det_scan["Detector.scan"]:::cArt
+    end
+
+    subgraph MODEL_FLOW["Model Forward & Methods"]
+        N_fus_fwd["CoSpyFusionDetector.forward"]:::cFusion
+        N_sem_fwd["SemanticDetector.forward"]:::cSem
+        N_art_fwd["ArtifactDetector.forward"]:::cArt
+        N_vae_fwd["VAEReconEncoder.forward"]:::cArt
+        N_vae_rec["VAEReconEncoder.reconstruct"]:::cArt
+        N_pred["BaseDetector.predict"]:::cModel
+        N_save["BaseDetector.save_weights"]:::cModel
+        N_load["BaseDetector.load_weights"]:::cModel
+    end
+
+    subgraph UTIL_CALLS["Utilities & Datasets"]
+        N_aug["utils.py::data_augment"]:::cData
+        N_eval["utils.py::evaluate"]:::cData
+        N_ds_get["TrainDataset.__getitem__"]:::cData
+        N_fds_get["FusionTrainDataset.__getitem__"]:::cData
+    end
+
+    %% Edges
+    N_main --> N_tr_init
+    N_main --> N_tr_train
+    N_main --> N_det_init
+    N_main --> N_det_bench
+    N_main --> N_det_scan
+
+    N_tr_init --> N_load
+    N_tr_train --> N_sched
+    N_tr_train --> N_tr_step
+    N_tr_train --> N_pred
+    N_tr_train --> N_eval
+    N_tr_train --> N_save
+    N_tr_train --> N_ds_get
+    N_tr_train --> N_fds_get
+
+    N_tr_step --> N_mix
+    N_tr_step --> N_fus_fwd
+    N_tr_step --> N_sem_fwd
+    N_tr_step --> N_art_fwd
+
+    N_det_init --> N_load
+    N_det_bench --> N_pred
+    N_det_bench --> N_eval
+
+    N_det_scan --> N_sem_fwd
+    N_det_scan --> N_art_fwd
+    N_det_scan --> N_fus_fwd
+
+    N_pred --> N_fus_fwd
+    N_pred --> N_sem_fwd
+    N_pred --> N_art_fwd
+
+    N_fus_fwd --> N_sem_fwd
+    N_fus_fwd --> N_art_fwd
+
+    N_art_fwd --> N_vae_fwd
+    N_vae_fwd --> N_vae_rec
+
+    N_ds_get --> N_aug
+    N_fds_get --> N_aug
+
+    classDef cEntry fill:#238636,stroke:#2ea043,stroke-width:2px,color:#fff;
+    classDef cTrain fill:#1f6feb,stroke:#388bfd,stroke-width:2px,color:#fff;
+    classDef cSem fill:#8957e5,stroke:#a371f7,stroke-width:2px,color:#fff;
+    classDef cArt fill:#d29922,stroke:#e3b341,stroke-width:2px,color:#000;
+    classDef cFusion fill:#da3633,stroke:#f85149,stroke-width:2px,color:#fff;
+    classDef cData fill:#238636,stroke:#39c5bb,stroke-width:2px,color:#fff;
+    classDef cModel fill:#30363d,stroke:#8b949e,stroke-width:1px,color:#f0f6fc;
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- GRAPH 4: DATA FLOW GRAPH -->
+            <section id="sec-graph4">
+                <div class="section-header">
+                    <h2>Graph 4 — Data Flow Graph (Đường Đi Của Dữ Liệu & Biến Đổi Tensor)</h2>
+                    <span class="section-badge">Tensor Transformations</span>
+                </div>
+                <div class="graph-card">
+                    <div class="graph-header">
+                        <div class="graph-title">🌊 Chi tiết hình dạng Tensor (Shape), Tiền xử lý & Kích thước qua từng chặng</div>
+                        <div class="graph-controls">
+                            <button class="btn-ctrl" onclick="zoomGraph('g4', 1.2)">🔍 Phóng to</button>
+                            <button class="btn-ctrl" onclick="zoomGraph('g4', 0.8)">🔍 Thu nhỏ</button>
+                            <button class="btn-ctrl" onclick="resetGraph('g4')">🔄 Mặc định</button>
+                        </div>
+                    </div>
+                    <div class="graph-body" id="g4">
+                        <div class="mermaid">
+flowchart TD
+    %% Đầu vào
+    IMG_IN["Ảnh gốc đĩa<br>RGB PIL.Image (H, W, 3)"]:::cData
+
+    %% Nhánh Fusion tiền xử lý
+    subgraph P_PRE["Tiền Xử Lý Độc Lập Cho Từng Nhánh (Transforms)"]
+        direction LR
+        P_SEM["<b>Nhánh Semantic Preprocess:</b><br>1. Resize 384x384<br>2. Data Augment (Blur 50%, JPEG 50%)<br>3. RandomCrop 384x384<br>4. ToTensor()<br>5. Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5])<br><b>Tensor x_sem: (B, 3, 384, 384) ∈ [-1, 1]</b>"]:::cSem
+        P_ART["<b>Nhánh Artifact Preprocess:</b><br>1. Data Augment (JPEG 50%)<br>2. Resize 256x256<br>3. RandomCrop 224x224<br>4. ToTensor()<br>5. Normalize(mean=[0,0,0], std=[1,1,1])<br><b>Tensor x_art: (B, 3, 224, 224) ∈ [0, 1]</b>"]:::cArt
+    end
+
+    IMG_IN --> P_SEM
+    IMG_IN --> P_ART
+
+    %% Xử lý trích xuất
+    subgraph P_EXTRACT["Trích Xuất Đặc Trưng (Feature Extraction)"]
+        direction LR
+        CLIP["<b>OpenCLIP SigLIP ViT-SO400M-14:</b><br>Frozen Vision Encoder<br><b>feat_sem: (B, 1152)</b>"]:::cSem
+        VAE["<b>AutoencoderKL VAE + VAEReconEncoder:</b><br>residual = (x - x_recon) / 7.0 * 100.0<br>ResNet Layers 1-2 + AvgPool<br><b>feat_art: (B, 512)</b>"]:::cArt
+    end
+
+    P_SEM --> CLIP
+    P_ART --> VAE
+
+    %% Nhánh Head
+    subgraph P_HEAD["Phân Loại Nhánh Đơn Lẻ (Branch FCs)"]
+        direction LR
+        FC_SEM["sem.fc: Linear(1152, 1)<br><b>pred_sem: (B, 1) Logit</b>"]:::cSem
+        FC_ART["art.fc: Linear(512, 1)<br><b>pred_art: (B, 1) Logit</b>"]:::cArt
+    end
+
+    CLIP --> FC_SEM
+    VAE --> FC_ART
+
+    %% Late Fusion
+    subgraph P_FUSION["Late Fusion Layer (CoSpyFusionDetector)"]
+        CAT["torch.cat([pred_sem, pred_art], dim=1)<br><b>feat_fusion: (B, 2)</b>"]:::cFusion
+        FC_FUS["fusion.fc: Linear(2, 1)<br>w1 * pred_sem + w2 * pred_art + b<br><b>total_logit: (B, 1)</b>"]:::cFusion
+        SIG["Sigmoid Activation<br>p = 1 / (1 + exp(-logit))<br><b>probability: (B, 1) ∈ [0.0, 1.0]</b>"]:::cFusion
+    end
+
+    FC_SEM --> CAT
+    FC_ART --> CAT
+    CAT --> FC_FUS
+    FC_FUS --> SIG
+
+    %% Kết quả
+    SIG --> OUT["Phân loại Nhị phân:<br>p > 0.5: AI-Generated (1)<br>p <= 0.5: Real Image (0)"]:::cEntry
+
+    classDef cEntry fill:#238636,stroke:#2ea043,stroke-width:2px,color:#fff;
+    classDef cSem fill:#8957e5,stroke:#a371f7,stroke-width:2px,color:#fff;
+    classDef cArt fill:#d29922,stroke:#e3b341,stroke-width:2px,color:#000;
+    classDef cFusion fill:#da3633,stroke:#f85149,stroke-width:2px,color:#fff;
+    classDef cData fill:#238636,stroke:#39c5bb,stroke-width:2px,color:#fff;
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- GRAPH 5: TRAINING WORKFLOW -->
+            <section id="sec-graph5">
+                <div class="section-header">
+                    <h2>Graph 5 — Training Workflow (Quy Trình Huấn Luyện 3 Giai Đoạn Chuẩn CVPR 2025)</h2>
+                    <span class="section-badge">Training Pipeline</span>
+                </div>
+                <div class="graph-card">
+                    <div class="graph-header">
+                        <div class="graph-title">🏋️ Pipeline Huấn Luyện Từng Bước Theo train.sh và train.py</div>
+                        <div class="graph-controls">
+                            <button class="btn-ctrl" onclick="zoomGraph('g5', 1.2)">🔍 Phóng to</button>
+                            <button class="btn-ctrl" onclick="zoomGraph('g5', 0.8)">🔍 Thu nhỏ</button>
+                            <button class="btn-ctrl" onclick="resetGraph('g5')">🔄 Mặc định</button>
+                        </div>
+                    </div>
+                    <div class="graph-body" id="g5">
+                        <div class="mermaid">
+flowchart TD
+    START["Bắt đầu: bash train.sh --dataset sd-v1_4 --gpu 0"]:::cEntry
+
+    %% Giai đoạn 1: Artifact
+    subgraph STAGE1["Giai đoạn 1: Huấn luyện Nhánh Artifact (20 Epochs)"]
+        S1_CMD["python main.py --phase train --mode branch --branch artifact --epochs 20"]
+        S1_LOAD["Nạp TrainDataset(sd-v1_4) + VAE Frozen"]
+        S1_OPT["AdamW(lr=1e-4, weight_decay=0.0)<br>CosineAnnealingLR per batch"]
+        S1_LOOP["Vòng lặp 20 Epochs:<br>- Forward VAE residual qua ResNet encoder + Linear(512,1)<br>- Loss: BCEWithLogitsLoss(outputs, labels)<br>- Val đánh giá sau mỗi epoch<br>- Lưu ckpt/sd-v1_4/artifact/best_model.pth"]
+        S1_CMD --> S1_LOAD --> S1_OPT --> S1_LOOP
+    end
+
+    %% Giai đoạn 2: Semantic
+    subgraph STAGE2["Giai đoạn 2: Huấn luyện Nhánh Semantic (10 Epochs)"]
+        S2_CMD["python main.py --phase train --mode branch --branch semantic --epochs 10 --feat_interp"]
+        S2_LOAD["Nạp TrainDataset(sd-v1_4) + OpenCLIP SigLIP Frozen"]
+        S2_MIX["Feature Interpolation (Mixup):<br>sample delta ~ Beta(0.2, 0.2)<br>feats_mixed = delta*f_a + (1-delta)*f_b<br>labels_soft = delta*y_a + (1-delta)*y_b"]
+        S2_OPT["AdamW(lr=1e-4) + CosineAnnealingLR"]
+        S2_LOOP["Vòng lặp 10 Epochs:<br>- Forward CLIP features qua Linear(1152, 1)<br>- BCEWithLogitsLoss(outputs, labels_soft)<br>- Lưu ckpt/sd-v1_4/semantic/best_model.pth"]
+        S2_CMD --> S2_LOAD --> S2_MIX --> S2_OPT --> S2_LOOP
+    end
+
+    %% Giai đoạn 3: Fusion
+    subgraph STAGE3["Giai đoạn 3: Hiệu chuẩn Late Fusion (1 Epoch)"]
+        S3_CMD["python main.py --phase train --mode fusion --train_dataset sd-v1_4 --epochs 1"]
+        S3_LOAD["Nạp CoSpyFusionDetector:<br>- Load best_model.pth của cả 2 nhánh<br>- Đóng băng 100% tham số cả 2 nhánh<br>- Khởi tạo Linear(2, 1) với w=0.5, b=2.0"]
+        S3_DATA["FusionTrainDataset:<br>Duyệt tập val2017 sinh cả sem_transform và art_transform"]
+        S3_OPT["AdamW(lr=1e-1) - Learning rate lớn chuyên tinh chỉnh head"]
+        S3_LOSS["Loss = BCEWithLogitsLoss(outputs, labels) + relu(2.0 - b)<br>(Ràng buộc ngưỡng bias floor)"]
+        S3_SAVE["Lưu ckpt/sd-v1_4/fusion/best_model.pth"]
+        S3_CMD --> S3_LOAD --> S3_DATA --> S3_OPT --> S3_LOSS --> S3_SAVE
+    end
+
+    START --> STAGE1
+    STAGE1 --> STAGE2
+    STAGE2 --> STAGE3
+    STAGE3 --> END_TR["Hoàn thành: Mô hình sẵn sàng đánh giá và suy luận"]:::cEntry
+
+    classDef cEntry fill:#238636,stroke:#2ea043,stroke-width:2px,color:#fff;
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- GRAPH 6: MODEL ARCHITECTURE & TENSOR FLOW -->
+            <section id="sec-graph6">
+                <div class="section-header">
+                    <h2>Graph 6 — Model Architecture & Luồng Tensor Forward Pass</h2>
+                    <span class="section-badge">Network Architecture</span>
+                </div>
+                <div class="graph-card">
+                    <div class="graph-header">
+                        <div class="graph-title">🧠 Cấu trúc chi tiết các lớp nơ-ron bên trong CoSpyFusionDetector</div>
+                        <div class="graph-controls">
+                            <button class="btn-ctrl" onclick="zoomGraph('g6', 1.2)">🔍 Phóng to</button>
+                            <button class="btn-ctrl" onclick="zoomGraph('g6', 0.8)">🔍 Thu nhỏ</button>
+                            <button class="btn-ctrl" onclick="resetGraph('g6')">🔄 Mặc định</button>
+                        </div>
+                    </div>
+                    <div class="graph-body" id="g6">
+                        <div class="mermaid">
+flowchart TB
+    INPUT["Batch Ảnh Đầu Vào: x ∈ R^(B x 3 x 384 x 384)"]:::cData
+
+    %% Nhánh Semantic
+    subgraph BRANCH_SEM["Nhánh 1: SemanticDetector (detectors/sd_v1_4/semantic.py)"]
+        S_T["sem_transform: Normalize([-1, 1])"]
+        CLIP_ENC["OpenCLIP SigLIP ViT-SO400M-14 Encoder<br><b>requires_grad = False (Đóng băng)</b>"]
+        S_FEAT["Feature Vector: feat_sem ∈ R^(B x 1152)"]
+        S_FC["self.fc = nn.Linear(1152, 1)"]
+        S_LOGIT["Logit Ngữ nghĩa: pred_sem ∈ R^(B x 1)"]
+        S_T --> CLIP_ENC --> S_FEAT --> S_FC --> S_LOGIT
+    end
+
+    %% Nhánh Artifact
+    subgraph BRANCH_ART["Nhánh 2: ArtifactDetector (detectors/sd_v1_4/artifact.py)"]
+        A_T["art_transform: Resize(224) + Normalize([0, 1])"]
+        
+        subgraph VAE_BLOCK["AutoencoderKL VAE (CompVis/stable-diffusion-v1-4)"]
+            VAE_ENC["vae.encode(x).latent_dist.mean<br>Latent z ∈ R^(B x 4 x 28 x 28)"]
+            VAE_DEC["vae.decode(z).sample<br>Ảnh tái tạo x_recon ∈ R^(B x 3 x 224 x 224)"]
+            VAE_DIFF["residual = x - x_recon<br>res_scaled = residual / 7.0 * 100.0"]
+            VAE_ENC --> VAE_DEC --> VAE_DIFF
+        end
+
+        subgraph RESNET_BLOCK["VAEReconEncoder (ResNet Rút Gọn)"]
+            R_CONV1["Conv2d(3, 64, k=3, s=2, p=1) + BN + ReLU + MaxPool"]
+            R_L1["Layer1: 3x Bottleneck blocks (out: 256 channels)"]
+            R_L2["Layer2: 4x Bottleneck blocks (s=2, out: 512 channels)"]
+            R_POOL["AdaptiveAvgPool2d(1, 1) + Flatten"]
+            R_CONV1 --> R_L1 --> R_L2 --> R_POOL
+        end
+
+        A_FC["self.fc = nn.Linear(512, 1)"]
+        A_LOGIT["Logit Điểm ảnh: pred_art ∈ R^(B x 1)"]
+
+        A_T --> VAE_BLOCK
+        VAE_DIFF --> RESNET_BLOCK
+        R_POOL --> A_FC --> A_LOGIT
+    end
+
+    INPUT --> S_T
+    INPUT --> A_T
+
+    %% Fusion Layer
+    subgraph FUSION_LAYER["CoSpyFusionDetector Fusion Head (detectors/sd_v1_4/fusion.py)"]
+        F_CAT["torch.cat([pred_sem, pred_art], dim=1)<br>Tensor ghép nối ∈ R^(B x 2)"]
+        F_FC["self.fc = nn.Linear(2, 1)<br>Trọng số học được: [w_sem, w_art], Bias: b"]
+        F_LOGIT["Total Logit = w_sem * pred_sem + w_art * pred_art + b"]
+        F_SIG["Sigmoid: p = 1 / (1 + exp(-Total_Logit))"]
+
+        F_CAT --> F_FC --> F_LOGIT --> F_SIG
+    end
+
+    S_LOGIT --> F_CAT
+    A_LOGIT --> F_CAT
+
+    F_SIG --> PREDICT["Dự đoán Xác Suất AI sinh (B, 1)"]:::cEntry
+
+    classDef cData fill:#238636,stroke:#39c5bb,stroke-width:2px,color:#fff;
+    classDef cEntry fill:#238636,stroke:#2ea043,stroke-width:2px,color:#fff;
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- GRAPH 7: INFERENCE WORKFLOW -->
+            <section id="sec-graph7">
+                <div class="section-header">
+                    <h2>Graph 7 — Inference Workflow (Quy Trình Quét Ảnh Đơn Lẻ detector.scan)</h2>
+                    <span class="section-badge">Inference Pipeline</span>
+                </div>
+                <div class="graph-card">
+                    <div class="graph-header">
+                        <div class="graph-title">🔍 Chi tiết suy luận từ người dùng nhập ảnh tới công thức giải thích từng nhánh</div>
+                        <div class="graph-controls">
+                            <button class="btn-ctrl" onclick="zoomGraph('g7', 1.2)">🔍 Phóng to</button>
+                            <button class="btn-ctrl" onclick="zoomGraph('g7', 0.8)">🔍 Thu nhỏ</button>
+                            <button class="btn-ctrl" onclick="resetGraph('g7')">🔄 Mặc định</button>
+                        </div>
+                    </div>
+                    <div class="graph-body" id="g7">
+                        <div class="mermaid">
+flowchart TD
+    USER_CLI["Người dùng chạy CLI: python main.py --phase test --train_dataset sd-v1_4 --pretrain"]:::cEntry
+
+    DET_LOAD["Detector.__init__ (evaluate.py::L61)<br>1. Nạp pretrained/sd-v1_4/semantic_weights.pth<br>2. Nạp pretrained/sd-v1_4/artifact_weights.pth<br>3. Nạp pretrained/sd-v1_4/fusion_weights.pth<br>4. model.eval() (Khóa Dropout và BatchNorm)"]
+    USER_CLI --> DET_LOAD
+
+    LOOP_SCAN["Vòng lặp scan() (evaluate.py::L297)<br>Nhập đường dẫn ảnh từ bàn phím (strip quote trên Windows)"]
+    DET_LOAD --> LOOP_SCAN
+
+    LOOP_SCAN --> READ_IMG["PIL.Image.open(filepath).convert('RGB')<br>test_transform(image).unsqueeze(0).to(device)<br>Tensor x: (1, 3, 384, 384)"]
+
+    subgraph INFER_PARALLEL["Suy Luận Từng Nhánh Dưới torch.no_grad()"]
+        direction LR
+        I_SEM["<b>Nhánh Semantic:</b><br>x_sem = sem_transform(image)<br>logit_sem = sem(x_sem)<br>prob_sem = logit_sem.sigmoid()<br>tag_sem = 'AI' if prob_sem > 0.5"]:::cSem
+        I_ART["<b>Nhánh Artifact:</b><br>x_art = art_transform(image)<br>logit_art = art(x_art)<br>prob_art = logit_art.sigmoid()<br>tag_art = 'AI' if prob_art > 0.5"]:::cArt
+    end
+
+    READ_IMG --> I_SEM
+    READ_IMG --> I_ART
+
+    subgraph INFER_FUSION["Hiệu Chuẩn Fusion & Giải Thích Trực Quan"]
+        F_WEIGHTS["Lấy trọng số học được:<br>w_sem = fc.weight[0][0]<br>w_art = fc.weight[0][1]<br>b = fc.bias[0]"]
+        F_CALC["Công thức tổng hợp:<br>total_logit = (w_sem * logit_sem) + (w_art * logit_art) + b<br>prediction = total_logit.sigmoid()"]
+        F_DECISION["Ra quyết định:<br>tag_final = 'AI-Generated' if prediction > 0.5 else 'Real'"]
+        F_WEIGHTS --> F_CALC --> F_DECISION
+    end
+
+    I_SEM --> F_WEIGHTS
+    I_ART --> F_WEIGHTS
+
+    F_DECISION --> PRINT_REP["In báo cáo chi tiết ra Console:<br>- Xác suất & Logit nhánh Semantic<br>- Xác suất & Logit nhánh Artifact<br>- Công thức kết hợp Late Fusion<br>- Xác suất cuối cùng & Kết luận"]:::cEntry
+
+    PRINT_REP --> LOOP_SCAN
+
+    classDef cEntry fill:#238636,stroke:#2ea043,stroke-width:2px,color:#fff;
+    classDef cSem fill:#8957e5,stroke:#a371f7,stroke-width:2px,color:#fff;
+    classDef cArt fill:#d29922,stroke:#e3b341,stroke-width:2px,color:#000;
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- GRAPH 8: FILE VÀ MODULE RELATIONSHIPS -->
+            <section id="sec-graph8">
+                <div class="section-header">
+                    <h2>Graph 8 — Quan Hệ Giữa Các File & Module (Imports & Dependencies)</h2>
+                    <span class="section-badge">File Dependency Graph</span>
+                </div>
+                <div class="graph-card">
+                    <div class="graph-header">
+                        <div class="graph-title">📦 Mối liên kết tĩnh (Imports) vs Mối liên kết động (Runtime Invocations)</div>
+                        <div class="graph-controls">
+                            <button class="btn-ctrl" onclick="zoomGraph('g8', 1.2)">🔍 Phóng to</button>
+                            <button class="btn-ctrl" onclick="zoomGraph('g8', 0.8)">🔍 Thu nhỏ</button>
+                            <button class="btn-ctrl" onclick="resetGraph('g8')">🔄 Mặc định</button>
+                        </div>
+                    </div>
+                    <div class="graph-body" id="g8">
+                        <div class="mermaid">
+flowchart TD
+    %% Tệp gốc
+    F_MAIN["main.py<br>(Entry Point)"]:::cEntry
+    F_TRAIN["train.py<br>(Training Engine)"]:::cTrain
+    F_EVAL["evaluate.py<br>(Evaluation & Scan)"]:::cSem
+    F_UTILS["utils.py<br>(Utilities)"]:::cData
+    F_SH["train.sh<br>(Shell Script)"]:::cModel
+
+    %% Packages
+    subgraph PKG_DET["detectors/sd_v1_4/"]
+        D_INIT["__init__.py"]
+        D_BASE["base.py"]
+        D_SEM["semantic.py"]
+        D_ART["artifact.py"]
+        D_FUS["fusion.py"]
+        D_E2E["end2end.py"]
+    end
+
+    subgraph PKG_DS["dataSets/"]
+        DS_INIT["__init__.py"]
+        DS_MAIN["dataset.py"]
+        DS_REAL["cospy_real.py"]
+    end
+
+    subgraph PKG_LIB["Thư viện Ngoài (PyTorch / AI Ecosystem)"]
+        LIB_TORCH["PyTorch (torch, nn, optim)"]
+        LIB_CLIP["open_clip (SigLIP ViT-SO400M)"]
+        LIB_DIFF["diffusers (StableDiffusionPipeline VAE)"]
+        LIB_SK["scikit-learn (average_precision_score)"]
+    end
+
+    %% Mối liên kết
+    F_SH -->|Kích hoạt dòng lệnh| F_MAIN
+    F_MAIN -->|import| F_TRAIN
+    F_MAIN -->|import| F_EVAL
+    F_MAIN -->|import| F_UTILS
+
+    F_TRAIN -->|import dynamic| PKG_DET
+    F_TRAIN -->|import| PKG_DS
+    F_TRAIN -->|import| F_UTILS
+
+    F_EVAL -->|import dynamic| PKG_DET
+    F_EVAL -->|import| PKG_DS
+    F_EVAL -->|import| F_UTILS
+
+    D_FUS -->|import| D_SEM
+    D_FUS -->|import| D_ART
+    D_FUS -->|kế thừa| D_BASE
+    D_E2E -->|import| D_SEM
+    D_E2E -->|import| D_ART
+    D_E2E -->|kế thừa| D_BASE
+    D_SEM -->|kế thừa| D_BASE
+    D_ART -->|kế thừa| D_BASE
+
+    D_SEM -->|import| F_UTILS
+    D_ART -->|import| F_UTILS
+    D_FUS -->|import| F_UTILS
+    D_E2E -->|import| F_UTILS
+
+    DS_MAIN -->|import| DS_REAL
+    DS_MAIN -->|import| F_UTILS
+
+    D_SEM -.-> LIB_CLIP
+    D_ART -.-> LIB_DIFF
+    F_UTILS -.-> LIB_SK
+    F_TRAIN -.-> LIB_TORCH
+
+    classDef cEntry fill:#238636,stroke:#2ea043,stroke-width:2px,color:#fff;
+    classDef cTrain fill:#1f6feb,stroke:#388bfd,stroke-width:2px,color:#fff;
+    classDef cSem fill:#8957e5,stroke:#a371f7,stroke-width:2px,color:#fff;
+    classDef cData fill:#238636,stroke:#39c5bb,stroke-width:2px,color:#fff;
+    classDef cModel fill:#30363d,stroke:#8b949e,stroke-width:1px,color:#f0f6fc;
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SECTION 2: CHI TIẾT TỪNG HÀM VÀ MODULE -->
+            <section id="sec-functions">
+                <div class="section-header">
+                    <h2>2. Tra Cứu Toàn Diện Các Hàm & Module Trong sd_v1_4</h2>
+                    <span class="section-badge">Function Encyclopedia</span>
+                </div>
+
+                <div class="card">
+                    <p style="margin-bottom: 16px; color: var(--text-secondary);">
+                        Danh sách toàn bộ 23 hàm, class và phương thức chủ chốt cấu thành nhánh triển khai <code class="inline">sd_v1_4</code>. Nhấn vào bất kỳ mục nào hoặc tra cứu trên thanh tìm kiếm để xem phân tích chi tiết.
+                    </p>
+
+                    <table class="custom-table" id="functions-table">
+                        <thead>
+                            <tr>
+                                <th>Tên Hàm / Lớp</th>
+                                <th>Vị trí Source Code</th>
+                                <th>Vai Trò & Nhiệm Vụ Chính</th>
+                                <th>Đầu vào & Đầu ra</th>
+                                <th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="func-table-body">
+                            <!-- Sẽ được fill tự động bởi JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- SECTION 3: TỔNG KẾT & ĐỐI CHIẾU -->
+            <section id="sec-summary">
+                <div class="section-header">
+                    <h2>3. Báo Cáo Tổng Kết & Đánh Giá Đối Chiếu</h2>
+                    <span class="section-badge">Final Synthesis</span>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">📌 Bảng so sánh 3 chế độ huấn luyện trong nhánh sd_v1_4</h3>
+                    <table class="custom-table">
+                        <thead>
+                            <tr>
+                                <th>Thuộc tính</th>
+                                <th>Chế độ Branch (Từng nhánh)</th>
+                                <th>Chế độ Fusion (Đề xuất CVPR '25)</th>
+                                <th>Chế độ End-to-End</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Mô hình</strong></td>
+                                <td><code class="inline">SemanticDetector</code> hoặc <code class="inline">ArtifactDetector</code></td>
+                                <td><code class="inline">CoSpyFusionDetector</code></td>
+                                <td><code class="inline">End2EndDetector</code></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Chiến lược cập nhật</strong></td>
+                                <td>Chỉ huấn luyện lớp <code class="inline">fc</code> (Semantic: 1152->1; Artifact: ResNet+512->1)</td>
+                                <td>Đóng băng cả 2 nhánh con, chỉ học lớp <code class="inline">Linear(2, 1)</code></td>
+                                <td>Huấn luyện đồng thời đặc trưng và phân loại <code class="inline">Linear(1664, 1)</code></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Số Epoch khuyến nghị</strong></td>
+                                <td>Semantic: 10 epochs; Artifact: 20 epochs</td>
+                                <td>1 epoch (Hiệu chuẩn nhanh)</td>
+                                <td>10 epochs</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Kỹ thuật chống Overfit</strong></td>
+                                <td>Feature Interpolation (Mixup với Beta(0.2, 0.2))</td>
+                                <td>Frozen feature extractors + Bias floor penalty</td>
+                                <td>Feature Dropout (tỷ lệ 30% giữa 2 nhánh)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Hiệu năng Co-Spy-Bench</strong></td>
+                                <td>Khá cao ở từng loại ảnh đặc thù</td>
+                                <td><strong>Tối ưu nhất: 96.0 - 96.6 mAP</strong></td>
+                                <td>Thấp hơn do xung đột gradient ngữ nghĩa vs pixel</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div class="alert alert-info" style="margin-top: 20px;">
+                        <span>💡</span>
+                        <div>
+                            <strong>Kết luận phân tích:</strong><br>
+                            Mã nguồn CO-SPY được thiết kế rất chặt chẽ và nhất quán. Nhánh <code class="inline">sd_v1_4</code> thể hiện trọn vẹn luận điểm cốt lõi của bài báo: việc kết hợp đặc trưng ngữ nghĩa mức cao (từ mô hình nền tảng CLIP) và đặc trưng dấu vết tái tạo mức điểm ảnh (từ VAE của Stable Diffusion) thông qua cơ chế Late Fusion là chìa khóa giúp phát hiện ảnh do AI sinh với độ chính xác và khả năng khái quát hóa vượt trội trên các mô hình sinh ảnh thế hệ mới.
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- MODAL / DRAWER CHI TIẾT NODE -->
+    <div id="node-modal">
+        <div class="modal-header">
+            <div class="modal-title-group">
+                <h3 id="modal-node-title">Function / Class Name</h3>
+                <div class="file-ref" id="modal-node-file">file_path.py::Line_Number</div>
+            </div>
+            <button class="close-btn" onclick="closeModal()">×</button>
+        </div>
+        <div class="modal-content">
+            <div class="meta-group">
+                <div class="meta-label">Phân Loại / Huy Hiệu</div>
+                <div id="modal-node-badge" class="meta-value">Category</div>
+            </div>
+
+            <div class="meta-group">
+                <div class="meta-label">Mô Tả Chức Năng & Nhiệm Vụ</div>
+                <div id="modal-node-desc" class="meta-value">Description text...</div>
+            </div>
+
+            <div class="meta-group">
+                <div class="meta-label">Tham Số Đầu Vào (Input Parameters)</div>
+                <div id="modal-node-params" class="meta-box">params</div>
+            </div>
+
+            <div class="meta-group">
+                <div class="meta-label">Giá Trị Trả Về & Tác Dụng Phụ (Output / Returns)</div>
+                <div id="modal-node-returns" class="meta-box">returns</div>
+            </div>
+
+            <div class="meta-group">
+                <div class="meta-label">Hàm Được Gọi Từ Đâu (Callers)</div>
+                <div id="modal-node-callers" class="meta-value">callers</div>
+            </div>
+
+            <div class="meta-group">
+                <div class="meta-label">Các Hàm Gọi Đến Tiếp Theo (Callees)</div>
+                <div id="modal-node-callees" class="meta-value">callees</div>
+            </div>
+
+            <div class="meta-group">
+                <div class="meta-label">Vai Trò Trong Pipeline</div>
+                <div id="modal-node-role" class="meta-value">role</div>
+            </div>
+
+            <div class="meta-group">
+                <div class="meta-label">Ghi Chú Kỹ Thuật & Giới Hạn Kiểm Chứng</div>
+                <div id="modal-node-notes" class="meta-value" style="color: var(--accent-orange);">notes</div>
+            </div>
+        </div>
+    </div>
+
+    
+
+    <script>
+        // Nạp cơ sở dữ liệu các node
+        const NODES_DATA = {"main_main": {"id": "main_main", "name": "main(args)", "file": "main.py", "line": 49, "category": "entry", "badge": "Entry Point", "desc": "Hàm thực thi chính điều phối luồng làm việc theo 'phase' được chỉ định: 'train' (khởi tạo Trainer), 'eval' (khởi tạo Detector và chạy evaluate_benchmark), hoặc 'test' (mở chế độ quét tương tác scan).", "params": "args (argparse.Namespace): Chứa các tham số dòng lệnh (phase, mode, gpu, train_dataset, branch, ckpt, epochs, batch_size, feat_interp, feat_interp_alpha, feat_interp_ratio, pretrain).", "returns": "None (In logs hoặc lưu checkpoint / file json kết quả).", "callers": "Điểm khởi chạy từ khối if __name__ == '__main__': (L174)", "callees": "seed_torch (L168), Trainer.__init__ (L55), Trainer.train (L68), Detector.__init__ (L74, L90), Detector.evaluate_benchmark (L84), Detector.scan (L99)", "role": "Entry point toàn hệ thống CO-SPY", "verified": true, "notes": "Nhận args.device='cuda:X' hoặc 'cpu'. Mặc định args.phase='test', mode='fusion', train_dataset='sd-v1_4'."}, "seed_torch": {"id": "seed_torch", "name": "seed_torch(seed)", "file": "utils.py", "line": 60, "category": "utils", "badge": "Tiện ích Seed", "desc": "Thiết lập hạt giống ngẫu nhiên (seed) cho random, os, numpy, torch, cuda, cudnn để đảm bảo tính tái lập (reproducibility) của các thí nghiệm.", "params": "seed (int): Giá trị hạt giống (mặc định trong main là 1024).", "returns": "None", "callers": "main.py (L168)", "callees": "random.seed, np.random.seed, torch.manual_seed, torch.cuda.manual_seed_all", "role": "Đảm bảo tính tái lập số liệu nghiên cứu", "verified": true, "notes": "Đặt torch.backends.cudnn.deterministic = True."}, "trainer_init": {"id": "trainer_init", "name": "Trainer.__init__(...)", "file": "train.py", "line": 69, "category": "train", "badge": "Khởi tạo Huấn luyện", "desc": "Khởi tạo bộ điều phối huấn luyện: nạp động module detectors.sd_v1_4, khởi tạo model theo mode ('branch', 'fusion', 'end2end'), khởi tạo Optimizer AdamW và Loss BCEWithLogitsLoss.", "params": "mode (str), device (str), branch (str), train_dataset (str), ckpt (str), epochs (int), batch_size (int), feat_interp (bool), feat_interp_alpha (float), feat_interp_ratio (float)", "returns": "Đối tượng Trainer", "callers": "main.py::main (L55)", "callees": "importlib.import_module, SemanticDetector/ArtifactDetector/CoSpyFusionDetector/End2EndDetector, torch.optim.AdamW, torch.nn.BCEWithLogitsLoss", "role": "Xây dựng pipeline kiến trúc và tối ưu hóa", "verified": true, "notes": "Với mode='fusion', kiểm tra đường dẫn checkpoint của 2 nhánh con và nạp trước khi khởi tạo CoSpyFusionDetector."}, "trainer_train": {"id": "trainer_train", "name": "Trainer.train()", "file": "train.py", "line": 332, "category": "train", "badge": "Vòng lặp Huấn luyện", "desc": "Vòng lặp chính qua từng epoch: tạo DataLoader, gọi train_step() cho mỗi batch, đánh giá mô hình trên tập Validation sau mỗi epoch, và tự động lưu best_model.pth khi đạt Accuracy cao nhất.", "params": "Không (dùng thuộc tính trong self)", "returns": "None (Lưu file trọng số .pth và log)", "callers": "main.py::main (L68)", "callees": "TrainDataset/FusionTrainDataset, DataLoader, Trainer.train_step, Trainer._build_scheduler, Trainer._step_lr_per_epoch, evaluate, BaseDetector.save_weights", "role": "Điều phối chu trình huấn luyện toàn diện", "verified": true, "notes": "Lưu best_model.pth, final_model.pth và epoch_X.pth mỗi 5 epoch."}, "trainer_train_step": {"id": "trainer_train_step", "name": "Trainer.train_step(batch_data)", "file": "train.py", "line": 233, "category": "train", "badge": "Cập nhật Batch", "desc": "Thực hiện 1 bước forward pass, tính hàm mất mát BCEWithLogitsLoss (có bias penalty cho fusion), backward pass và optimizer.step() để cập nhật trọng số.", "params": "batch_data (tuple): (images, labels) hoặc (sem_images, art_images, labels) cho fusion", "returns": "eval_loss (float), y_pred (list[float]), y_true (list[int])", "callers": "Trainer.train (L410)", "callees": "optimizer.zero_grad, model.forward, loss.backward, optimizer.step, lr_scheduler.step (nếu lr_step_per_batch=True)", "role": "Forward-backward pass trên từng mini-batch", "verified": true, "notes": "Ở mode fusion, cộng thêm penalty: relu(bias_floor - b) để ép ngưỡng dự đoán chuẩn xác."}, "trainer_mix_features": {"id": "trainer_mix_features", "name": "Trainer._mix_features(feats, labels)", "file": "train.py", "line": 197, "category": "train", "badge": "Nội suy Đặc trưng", "desc": "Thực hiện nội suy tuyến tính không gian đặc trưng (Mixup) giữa các vector CLIP trong batch với tỷ lệ lấy mẫu từ phân phối Beta(alpha, alpha), sinh ra nhãn mềm.", "params": "feats (torch.Tensor (B, D)), labels (torch.Tensor (B,))", "returns": "feats_new (torch.Tensor), labels_new (torch.Tensor dạng soft label)", "callers": "Trainer.train_step (L263)", "callees": "torch.distributions.Beta.sample", "role": "Tăng cường đặc trưng chống overfit cho nhánh Semantic trên SD v1.4", "verified": true, "notes": "Chỉ kích hoạt khi args.feat_interp=True, mode='branch' và branch='semantic'."}, "trainer_build_scheduler": {"id": "trainer_build_scheduler", "name": "Trainer._build_scheduler(steps_per_epoch)", "file": "train.py", "line": 292, "category": "train", "badge": "Learning Rate Scheduler", "desc": "Khởi tạo bộ lập lịch giảm tốc độ học: với sd-v1_4 sử dụng CosineAnnealingLR giảm theo từng batch; với progan dùng StepLR giảm 10% mỗi 10 epoch.", "params": "steps_per_epoch (int): Số batch trong 1 epoch", "returns": "None (Gán self.lr_scheduler)", "callers": "Trainer.train (L402)", "callees": "torch.optim.lr_scheduler.CosineAnnealingLR", "role": "Điều tiết tốc độ hội tụ của optimizer", "verified": true, "notes": "Total steps = epochs * steps_per_epoch."}, "detector_init": {"id": "detector_init", "name": "Detector.__init__(...)", "file": "evaluate.py", "line": 61, "category": "eval", "badge": "Khởi tạo Detector", "desc": "Khởi tạo bộ phát hiện đánh giá: nạp module sd_v1_4, tải trọng số pretrained hoặc checkpoint từ đĩa, chuyển mô hình lên GPU/CPU và gọi model.eval().", "params": "device, mode, branch, train_dataset, pretrain, ckpt, batch_size", "returns": "Đối tượng Detector", "callers": "main.py::main (L74, L90)", "callees": "importlib.import_module, SemanticDetector/ArtifactDetector/CoSpyFusionDetector/End2EndDetector, load_weights, model.to, model.eval", "role": "Chuẩn bị mô hình sẵn sàng cho đánh giá và kiểm thử", "verified": true, "notes": "Kiểm tra đường dẫn file .pth kỹ càng trước khi nạp."}, "detector_evaluate_benchmark": {"id": "detector_evaluate_benchmark", "name": "Detector.evaluate_benchmark()", "file": "evaluate.py", "line": 173, "category": "eval", "badge": "Đánh giá Benchmark", "desc": "Đánh giá toàn diện trên Co-Spy-Bench (cho sd-v1_4) hoặc AIGCDetectionBenchMark (cho progan) qua 5 bộ dữ liệu nguồn và 22 mô hình sinh AI, tính AP và Accuracy, lưu output.json và result.json.", "params": "Không (sử dụng thuộc tính self)", "returns": "None (Ghi file kết quả)", "callers": "main.py::main (L84)", "callees": "CoSpyBenchTestDataset/AIGCDetectTestDataset, DataLoader, BaseDetector.predict, evaluate, json.dump", "role": "Đo lường năng lực khái quát hóa trên benchmark đa dạng", "verified": true, "notes": "Chạy tqdm tiến độ từng dataset và model generator."}, "detector_scan": {"id": "detector_scan", "name": "Detector.scan()", "file": "evaluate.py", "line": 297, "category": "inference", "badge": "Quét Ảnh Tương tác", "desc": "Vòng lặp tương tác nhập đường dẫn ảnh từ bàn phím, tiền xử lý qua test_transform, chạy forward pass phân tích sâu từng nhánh Semantic & Artifact, tính trọng số và kết luận ảnh Thật hay AI.", "params": "Đọc qua input() người dùng", "returns": "None (In báo cáo ra console)", "callers": "main.py::main (L99)", "callees": "Image.open, test_transform, sem_transform, art_transform, sem.forward, art.forward, fc.forward, sigmoid", "role": "Giao diện suy luận trực tiếp cho người dùng", "verified": true, "notes": "Tự động strip dấu nháy kép trên Windows terminal khi kéo thả ảnh."}, "semantic_detector": {"id": "semantic_detector", "name": "SemanticDetector", "file": "detectors/sd_v1_4/semantic.py", "line": 30, "category": "model", "badge": "Nhánh Ngữ nghĩa (CLIP)", "desc": "Mô hình trích xuất đặc trưng ngữ nghĩa mức cao từ OpenCLIP (ViT-SO400M-14-SigLIP-384, độ phân giải 384x384). Visual encoder được đóng băng (freeze), chỉ học lớp Linear(1152, 1).", "params": "dim_clip=1152, num_classes=1", "returns": "Logits (B, 1) hoặc tuple (feat, logits)", "callers": "train.py, evaluate.py, fusion.py, end2end.py", "callees": "open_clip.create_model_and_transforms, torch.nn.Linear, _build_transforms", "role": "Bắt lỗi logic cấu trúc ngữ nghĩa và vật lý của ảnh AI", "verified": true, "notes": "Mean=[0.5, 0.5, 0.5], Std=[0.5, 0.5, 0.5], ảnh chuẩn hóa về [-1, 1]."}, "artifact_detector": {"id": "artifact_detector", "name": "ArtifactDetector", "file": "detectors/sd_v1_4/artifact.py", "line": 37, "category": "model", "badge": "Nhánh Khiếm khuyết (VAE)", "desc": "Mô hình khai thác sai lệch tái tạo điểm ảnh từ AutoencoderKL (Stable Diffusion v1.4 VAE). Đóng băng VAE, tính residual = x - x_recon, đưa qua mạng ResNet rút gọn trích xuất đặc trưng 512 chiều, phân loại bằng Linear(512, 1).", "params": "dim_artifact=512, num_classes=1", "returns": "Logits (B, 1) hoặc tuple (feat, logits)", "callers": "train.py, evaluate.py, fusion.py, end2end.py", "callees": "StableDiffusionPipeline.vae, VAEReconEncoder, torch.nn.Linear, _build_transforms", "role": "Bắt dấu vết tần số cao và sai lệch tái tạo điểm ảnh của AI", "verified": true, "notes": "Load size 256, Crop size 224. Mean=[0,0,0], Std=[1,1,1]."}, "vae_recon_encoder": {"id": "vae_recon_encoder", "name": "VAEReconEncoder", "file": "detectors/sd_v1_4/artifact.py", "line": 228, "category": "model", "badge": "VAE Encoder ResNet", "desc": "Mạng tích chập ResNet rút gọn (dùng Conv1, BN1, MaxPool, Layer1 (3 Bottleneck blocks) và Layer2 (4 Bottleneck blocks) cùng AdaptiveAvgPool2d) để xử lý bản đồ sai số tái tạo được khuếch đại (residual / 7.0 * 100.0).", "params": "vae: Mô hình VAE đã đóng băng, block=Bottleneck", "returns": "Tensor đặc trưng 512 chiều (B, 512)", "callers": "ArtifactDetector.forward (L152)", "callees": "reconstruct, conv1, bn1, relu, maxpool, layer1, layer2, avgpool", "role": "Trích xuất đặc trưng điểm ảnh từ sai số tái tạo VAE", "verified": true, "notes": "Khởi tạo trọng số Kaiming Normal."}, "vae_reconstruct": {"id": "vae_reconstruct", "name": "VAEReconEncoder.reconstruct(x)", "file": "detectors/sd_v1_4/artifact.py", "line": 282, "category": "model", "badge": "Tái tạo VAE", "desc": "Nén ảnh x xuống không gian ẩn (latent) thông qua vae.encode(x).latent_dist.mean, sau đó giải mã qua vae.decode(latent).sample để nhận ảnh tái tạo x_recon.", "params": "x (torch.Tensor (B, 3, H, W))", "returns": "decoded (torch.Tensor (B, 3, H, W))", "callers": "VAEReconEncoder.forward (L296)", "callees": "vae.encode, vae.decode", "role": "Tạo ảnh tái tạo chuẩn để so sánh sai khác pixel", "verified": true, "notes": "Thực hiện dưới khối torch.no_grad()."}, "fusion_detector": {"id": "fusion_detector", "name": "CoSpyFusionDetector", "file": "detectors/sd_v1_4/fusion.py", "line": 33, "category": "model", "badge": "Kiến trúc Đề xuất Chính (Best Practice)", "desc": "Mô hình Late Fusion kết hợp: nạp trọng số đã huấn luyện của SemanticDetector và ArtifactDetector, đóng băng toàn bộ 2 nhánh con, chỉ học 1 lớp tuyến tính Linear(2, 1) để kết hợp 2 logit đầu ra thành xác suất tổng hợp.", "params": "semantic_weights_path, artifact_weights_path, num_classes=1", "returns": "Logits tổng hợp (B, 1)", "callers": "train.py, evaluate.py", "callees": "SemanticDetector, ArtifactDetector, sem_transform, art_transform, torch.cat, torch.nn.Linear", "role": "Kiến trúc tối ưu đạt 96.0 mAP trên Co-Spy-Bench theo bài báo CVPR 2025", "verified": true, "notes": "Đầu vào batch ảnh được biến đổi riêng theo từng nhánh trước khi đưa vào forward."}, "end2end_detector": {"id": "end2end_detector", "name": "End2EndDetector", "file": "detectors/sd_v1_4/end2end.py", "line": 36, "category": "model", "badge": "Huấn luyện Đồng bộ End-to-End", "desc": "Mô hình huấn luyện đồng thời cả 2 nhánh từ đầu đến cuối với lớp phân loại Linear(1152 + 512, 1). Tích hợp kỹ thuật Feature Dropout ngẫu nhiên giữa 2 nhánh (tỷ lệ 30%) khi training.", "params": "num_classes=1", "returns": "Logits (B, 1)", "callers": "train.py, evaluate.py", "callees": "SemanticDetector, ArtifactDetector, torch.cat, torch.nn.Linear, random.random", "role": "Lựa chọn huấn luyện thay thế khi không muốn train 2 giai đoạn", "verified": true, "notes": "Hiệu năng có thể thấp hơn Fusion do xung đột gradient giữa đặc trưng ngữ nghĩa và điểm ảnh."}, "base_detector": {"id": "base_detector", "name": "BaseDetector", "file": "detectors/sd_v1_4/base.py", "line": 26, "category": "model", "badge": "Lớp Cơ sở Trừu tượng", "desc": "Lớp cha trừu tượng (kế thừa torch.nn.Module và ABC) định nghĩa blueprint chung: _build_transforms(), forward(), predict(), save_weights(), load_weights().", "params": "None", "returns": "Đối tượng BaseDetector", "callers": "Kế thừa bởi SemanticDetector, ArtifactDetector, CoSpyFusionDetector, End2EndDetector", "callees": "torch.nn.Module, abc.abstractmethod", "role": "Khung chuẩn hóa API mô hình phát hiện", "verified": true, "notes": "Cung cấp hàm predict() áp dụng Sigmoid để trả về xác suất [0.0, 1.0]."}, "base_predict": {"id": "base_predict", "name": "BaseDetector.predict(inputs)", "file": "detectors/sd_v1_4/base.py", "line": 69, "category": "inference", "badge": "Dự đoán Xác suất", "desc": "Chuyển tensor ảnh về cùng thiết bị với model, gọi forward(inputs), áp dụng hàm sigmoid().flatten().tolist() để trả về danh sách xác suất trong khoảng 0.0 đến 1.0.", "params": "inputs (torch.Tensor (B, C, H, W))", "returns": "list[float]: Xác suất ảnh do AI tạo (> 0.5 là AI, <= 0.5 là Thật)", "callers": "Detector.evaluate_benchmark (L240), Trainer.train (L438)", "callees": "self.forward, tensor.sigmoid", "role": "Chuyển đổi logits sang xác suất thực tế", "verified": true, "notes": "Hàm dự đoán dùng chung cho mọi detector."}, "dataset_train": {"id": "dataset_train", "name": "TrainDataset", "file": "dataSets/dataset.py", "line": 45, "category": "data", "badge": "Dataset Huấn luyện", "desc": "Dataset nạp ảnh thật (MSCOCO 2017 - nhãn 0) và ảnh giả AI (Stable Diffusion v1.4 - nhãn 1), xáo trộn ngẫu nhiên và áp dụng pipeline transforms.", "params": "train_dataset ('sd-v1_4'), split ('train' / 'val'), add_jpeg (bool), transform", "returns": "tuple (image, label)", "callers": "Trainer.train (L355, L370)", "callees": "get_list, Image.open, png_to_jpeg, transform", "role": "Cung cấp mẫu huấn luyện và validation", "verified": true, "notes": "Gán nhãn: 0 cho Real, 1 cho Fake."}, "dataset_fusion_train": {"id": "dataset_fusion_train", "name": "FusionTrainDataset", "file": "dataSets/dataset.py", "line": 274, "category": "data", "badge": "Dataset Huấn luyện Fusion", "desc": "Dataset bao bọc một TrainDataset gốc, nhận một ảnh đầu vào và áp dụng song song cả 2 pipeline: sem_transform (cho CLIP) và art_transform (cho VAE), trả về (sem_img, art_img, label).", "params": "base (TrainDataset), sem_transform, art_transform", "returns": "tuple (sem_img, art_img, label)", "callers": "Trainer.train (L361, L366)", "callees": "Image.open, sem_transform, art_transform", "role": "Cung cấp đồng thời dữ liệu cho 2 nhánh ở chế độ Fusion", "verified": true, "notes": "Dùng trong bước huấn luyện hiệu chuẩn 1 epoch của lớp fusion."}, "dataset_cospy_bench": {"id": "dataset_cospy_bench", "name": "CoSpyBenchTestDataset", "file": "dataSets/dataset.py", "line": 128, "category": "data", "badge": "Dataset Benchmark Co-Spy-Bench", "desc": "Dataset kiểm thử chuẩn Co-Spy-Bench: ghép cặp cân bằng số lượng giữa ảnh thật (MSCOCO, Flickr, CC3M, TextCaps, SBU) và ảnh giả từ 22 mô hình AI thế hệ mới.", "params": "dataset, model, num_real=2000, add_jpeg=True, transform", "returns": "tuple (image, label)", "callers": "Detector.evaluate_benchmark (L222)", "callees": "MSCOCO2017, Flickr30k, OtherReal, Image.open, png_to_jpeg, transform", "role": "Cung cấp dữ liệu chuẩn hóa đánh giá đa mô hình", "verified": true, "notes": "Đảm bảo cân bằng 50% thật - 50% giả để kết quả AP và Accuracy khách quan."}, "utils_data_augment": {"id": "utils_data_augment", "name": "data_augment(img, aug_config)", "file": "utils.py", "line": 122, "category": "utils", "badge": "Tăng cường Dữ liệu Ảnh", "desc": "Thực hiện ngẫu nhiên 2 phép biến đổi tăng cường thực tế: Gaussian Blur (làm mờ theo độ lệch chuẩn sig) và JPEG Compression (nén mất mát qua cv2 hoặc pil với dải chất lượng định trước).", "params": "img (PIL.Image), aug_config (dict chứa xác suất và khoảng tham số)", "returns": "PIL.Image đã tăng cường", "callers": "transforms.Lambda trong _build_transforms của SemanticDetector, ArtifactDetector, CoSpyFusionDetector, End2EndDetector", "callees": "sample_continuous, sample_discrete, gaussian_blur, jpeg_from_key", "role": "Giúp mô hình bền vững trước hiện tượng nén và mờ ảnh trên Internet", "verified": true, "notes": "Nhánh Semantic dùng blur_prob=0.5, jpg_prob=0.5; Nhánh Artifact chỉ dùng jpg_prob=0.5 (blur_prob=0.0 để tránh phá vỡ nhiễu điểm ảnh)."}, "utils_evaluate": {"id": "utils_evaluate", "name": "evaluate(y_pred, y_true)", "file": "utils.py", "line": 357, "category": "utils", "badge": "Tính toán Độ đo", "desc": "Tính toán hai chỉ số đánh giá phân loại cốt lõi: Average Precision (AP - diện tích PR curve qua sklearn) và Accuracy (tỷ lệ chính xác với ngưỡng phân định 0.5).", "params": "y_pred (list[float] xác suất), y_true (list[int] nhãn thực tế 0/1)", "returns": "tuple (ap, accuracy)", "callers": "Trainer.train (L411, L441), Detector.evaluate_benchmark (L243)", "callees": "sklearn.metrics.average_precision_score, numpy.mean", "role": "Đo lường định lượng chất lượng bộ phát hiện", "verified": true, "notes": "Ngưỡng phân loại mặc định là 0.5 (y_pred > 0.5 là AI sinh)."}};
+
+        // Khởi tạo Mermaid
+        document.addEventListener("DOMContentLoaded", function() {
+            mermaid.initialize({
+                startOnLoad: true,
+                theme: 'dark',
+                securityLevel: 'loose',
+                flowchart: {
+                    useMaxWidth: false,
+                    htmlLabels: true,
+                    curve: 'basis'
+                }
+            });
+
+            renderFunctionsTable();
+            setupMermaidClickEvents();
+        });
+
+        // Render bảng tra cứu các hàm
+        function renderFunctionsTable() {
+            const tbody = document.getElementById("func-table-body");
+            if (!tbody) return;
+            tbody.innerHTML = "";
+
+            Object.keys(NODES_DATA).forEach(key => {
+                const item = NODES_DATA[key];
+                const tr = document.createElement("tr");
+
+                tr.innerHTML = `
+                    <td>
+                        <strong style="color: var(--accent-cyan); font-family: 'JetBrains Mono', monospace; font-size: 13px;">${item.name}</strong><br>
+                        <span style="font-size: 11px; color: var(--text-muted);">${item.badge}</span>
+                    </td>
+                    <td>
+                        <code class="inline">${item.file}::L${item.line}</code>
+                    </td>
+                    <td style="color: var(--text-secondary); max-width: 380px;">
+                        ${item.desc}
+                    </td>
+                    <td>
+                        <div style="font-size: 11.5px; color: var(--text-muted);">In: ${item.params.substring(0, 42)}...</div>
+                        <div style="font-size: 11.5px; color: var(--accent-emerald);">Out: ${item.returns.substring(0, 42)}...</div>
+                    </td>
+                    <td>
+                        <button class="btn-ctrl" onclick="openNodeDetail('${key}')">Chi tiết 🔍</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Tìm kiếm toàn cục
+        function handleGlobalSearch(query) {
+            query = query.toLowerCase().trim();
+            const rows = document.querySelectorAll("#func-table-body tr");
+
+            rows.forEach(row => {
+                const text = row.innerText.toLowerCase();
+                if (text.includes(query)) {
+                    row.style.display = "";
+                } else {
+                    row.style.display = "none";
+                }
+            });
+        }
+
+        // Mở Modal chi tiết Node
+        function openNodeDetail(nodeId) {
+            const node = NODES_DATA[nodeId];
+            if (!node) return;
+
+            document.getElementById("modal-node-title").innerText = node.name;
+            document.getElementById("modal-node-file").innerText = `${node.file} :: Dòng ${node.line}`;
+            document.getElementById("modal-node-badge").innerHTML = `<span class="section-badge">${node.badge}</span> (${node.category})`;
+            document.getElementById("modal-node-desc").innerText = node.desc;
+            document.getElementById("modal-node-params").innerText = node.params;
+            document.getElementById("modal-node-returns").innerText = node.returns;
+            document.getElementById("modal-node-callers").innerText = node.callers;
+            document.getElementById("modal-node-callees").innerText = node.callees;
+            document.getElementById("modal-node-role").innerText = node.role;
+            document.getElementById("modal-node-notes").innerText = node.notes || "Đã xác minh đầy đủ trong source code thực tế.";
+
+            document.getElementById("node-modal").classList.add("open");
+        }
+
+        // Đóng modal
+        function closeModal() {
+            document.getElementById("node-modal").classList.remove("open");
+        }
+
+        // Đóng modal khi nhấn phím Escape
+        document.addEventListener("keydown", function(e) {
+            if (e.key === "Escape") {
+                closeModal();
+            }
+        });
+
+        // Thu phóng Graph
+        const zoomLevels = {};
+        function zoomGraph(graphId, factor) {
+            const container = document.getElementById(graphId);
+            if (!container) return;
+            const svg = container.querySelector("svg");
+            if (!svg) return;
+
+            if (!zoomLevels[graphId]) zoomLevels[graphId] = 1.0;
+            zoomLevels[graphId] *= factor;
+            svg.style.transform = `scale(${zoomLevels[graphId]})`;
+            svg.style.transformOrigin = "top center";
+            svg.style.transition = "transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)";
+        }
+
+        function resetGraph(graphId) {
+            const container = document.getElementById(graphId);
+            if (!container) return;
+            const svg = container.querySelector("svg");
+            if (!svg) return;
+
+            zoomLevels[graphId] = 1.0;
+            svg.style.transform = "scale(1.0)";
+        }
+
+        // Thiết lập sự kiện click cho các node Mermaid sau khi vẽ
+        function setupMermaidClickEvents() {
+            setTimeout(() => {
+                document.querySelectorAll(".mermaid svg g.node").forEach(node => {
+                    node.style.cursor = "pointer";
+                    node.addEventListener("click", function(e) {
+                        const nodeText = this.textContent.trim();
+                        let matchedKey = null;
+                        for (let k in NODES_DATA) {
+                            if (nodeText.includes(NODES_DATA[k].name.split("(")[0]) || 
+                                nodeText.includes(k) || 
+                                (NODES_DATA[k].name.includes("Trainer") && nodeText.includes("Trainer")) ||
+                                (NODES_DATA[k].name.includes("Detector") && nodeText.includes("Detector")) ||
+                                (NODES_DATA[k].name.includes("SemanticDetector") && nodeText.includes("Semantic")) ||
+                                (NODES_DATA[k].name.includes("ArtifactDetector") && nodeText.includes("Artifact")) ||
+                                (NODES_DATA[k].name.includes("CoSpyFusion") && nodeText.includes("Fusion"))
+                            ) {
+                                matchedKey = k;
+                                break;
+                            }
+                        }
+                        if (matchedKey) {
+                            openNodeDetail(matchedKey);
+                        }
+                    });
+                });
+            }, 1200);
+        }
+    </script>
+
+</body>
+</html>
