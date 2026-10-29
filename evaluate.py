@@ -3,11 +3,11 @@
 FILE: evaluate.py
 CHỨC NĂNG & NHIỆM VỤ CỦA FILE:
     - Cung cấp lớp Detector phục vụ cho hai tác vụ chính:
-        1. Đánh giá kiểm thử tự động toàn diện trên các bộ benchmark tiêu chuẩn 
+        1. Đánh giá kiểm thử tự động toàn diện trên các bộ benchmark tiêu chuẩn
            (Co-Spy-Bench cho Stable Diffusion, AIGCDetectionBenchMark cho ProGAN).
-        2. Chế độ quét (scan) tương tác trực tiếp với người dùng trên từng file ảnh 
+        2. Chế độ quét (scan) tương tác trực tiếp với người dùng trên từng file ảnh
            đơn lẻ để phân loại ảnh thật hay ảnh AI sinh ra.
-    - Quản lý tải mô hình phân loại (ArtifactDetector, SemanticDetector, 
+    - Quản lý tải mô hình phân loại (ArtifactDetector, SemanticDetector,
       CoSpyFusionDetector, End2EndDetector) cùng trọng số tương ứng (pretrained hoặc checkpoint).
     - Tính toán các chỉ số thống kê hiệu năng gồm Average Precision (AP) và Accuracy.
     - Tự động ghi log chi tiết và lưu kết quả đánh giá ra các file JSON.
@@ -22,19 +22,20 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 =============================================================================
 """
 
-import os
-import json
-import torch
 import importlib
+import json
+import os
+import warnings
+
 import numpy as np
-from tqdm import tqdm
-from PIL import Image
+import torch
 from loguru import logger
+from PIL import Image
+from tqdm import tqdm
 
 from dataSets import *
 from utils import evaluate
 
-import warnings
 warnings.filterwarnings("ignore")
 
 
@@ -44,7 +45,7 @@ warnings.filterwarnings("ignore")
 class Detector:
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
-    #     Khởi tạo đối tượng Detector, nạp động kiến trúc mô hình phù hợp theo dataset 
+    #     Khởi tạo đối tượng Detector, nạp động kiến trúc mô hình phù hợp theo dataset
     #     và chế độ (branch/fusion/end2end), nạp trọng số tương ứng từ pretrained hoặc checkpoint.
     # INPUT:
     #     - device (str): Thiết bị tính toán ('cuda:0', 'cpu', ...).
@@ -57,14 +58,16 @@ class Detector:
     # OUTPUT:
     #     - Đối tượng Detector sẵn sàng cho evaluate_benchmark() hoặc scan().
     # -------------------------------------------------------------------------
-    def __init__(self,
-                 device: str,
-                 mode: str = "fusion",
-                 branch: str = "artifact",
-                 train_dataset: str = "sd-v1_4",
-                 pretrain: bool = False,
-                 ckpt: str = "ckpt",
-                 batch_size: int = 32):
+    def __init__(
+        self,
+        device: str,
+        mode: str = "fusion",
+        branch: str = "artifact",
+        train_dataset: str = "sd-v1_4",
+        pretrain: bool = False,
+        ckpt: str = "ckpt",
+        batch_size: int = 32,
+    ):
 
         # Cấu hình thiết bị và tham số
         self.device = device
@@ -77,8 +80,8 @@ class Detector:
 
         # Ánh xạ chuẩn xác tên package Python và tên thư mục dữ liệu/weights
         if train_dataset in ["sd_v1_4", "sd-v1_4"]:
-            pkg_name = "sd_v1_4"   # Tên thư mục code trong detectors/
-            dir_name = "sd-v1_4"   # Tên thư mục trong pretrained/, data/
+            pkg_name = "sd_v1_4"  # Tên thư mục code trong detectors/
+            dir_name = "sd-v1_4"  # Tên thư mục trong pretrained/, data/
         else:
             pkg_name = train_dataset
             dir_name = train_dataset
@@ -92,9 +95,9 @@ class Detector:
         # Khởi tạo mô hình và nạp trọng số tùy theo chế độ (mode)
         if self.mode == "branch":
             if self.branch == "artifact":
-                DetectorClass = getattr(detector_module, "ArtifactDetector")
+                DetectorClass = detector_module.ArtifactDetector
             elif self.branch == "semantic":
-                DetectorClass = getattr(detector_module, "SemanticDetector")
+                DetectorClass = detector_module.SemanticDetector
             else:
                 raise ValueError(f"Unknown branch: {self.branch}")
             self.model = DetectorClass()
@@ -102,9 +105,13 @@ class Detector:
             if pretrain:
                 weights_path = f"pretrained/{dir_name}/{self.branch}_weights.pth"
             else:
-                weights_path = os.path.join(self.ckpt, dir_name, self.branch, "best_model.pth")
+                weights_path = os.path.join(
+                    self.ckpt, dir_name, self.branch, "best_model.pth"
+                )
             if not os.path.exists(weights_path):
-                raise ValueError(f"{self.branch} weights path does not exist: {weights_path}")
+                raise ValueError(
+                    f"{self.branch} weights path does not exist: {weights_path}"
+                )
             self.model.load_weights(weights_path)
         elif self.mode == "fusion":
             if pretrain:
@@ -114,30 +121,43 @@ class Detector:
                 fusion_weights_path = os.path.join(p_dir, "fusion_weights.pth")
             else:
                 c_dir = os.path.join(self.ckpt, dir_name)
-                semantic_weights_path = os.path.join(c_dir, "semantic", "best_model.pth")
-                artifact_weights_path = os.path.join(c_dir, "artifact", "best_model.pth")
+                semantic_weights_path = os.path.join(
+                    c_dir, "semantic", "best_model.pth"
+                )
+                artifact_weights_path = os.path.join(
+                    c_dir, "artifact", "best_model.pth"
+                )
                 fusion_weights_path = os.path.join(c_dir, "fusion", "best_model.pth")
-            if not os.path.exists(semantic_weights_path) or not os.path.exists(artifact_weights_path) or not os.path.exists(fusion_weights_path):
-                raise ValueError(f"Semantic, Artifact or Fusion weights path does not exist for fusion mode. Looked in: {semantic_weights_path}, {artifact_weights_path}, {fusion_weights_path}")
-            CoSpyFusionDetector = getattr(detector_module, "CoSpyFusionDetector")
+            if (
+                not os.path.exists(semantic_weights_path)
+                or not os.path.exists(artifact_weights_path)
+                or not os.path.exists(fusion_weights_path)
+            ):
+                raise ValueError(
+                    f"Semantic, Artifact or Fusion weights path does not exist for fusion mode. Looked in: {semantic_weights_path}, {artifact_weights_path}, {fusion_weights_path}"
+                )
+            CoSpyFusionDetector = detector_module.CoSpyFusionDetector
             self.model = CoSpyFusionDetector(
                 semantic_weights_path=semantic_weights_path,
-                artifact_weights_path=artifact_weights_path)
+                artifact_weights_path=artifact_weights_path,
+            )
             self.model.load_weights(fusion_weights_path)
         elif self.mode == "end2end":
-            End2EndDetector = getattr(detector_module, "End2EndDetector")
+            End2EndDetector = detector_module.End2EndDetector
             self.model = End2EndDetector()
-            end2end_weights_path = os.path.join(self.ckpt, self.train_dataset, "end2end", "best_model.pth")
+            end2end_weights_path = os.path.join(
+                self.ckpt, self.train_dataset, "end2end", "best_model.pth"
+            )
             if not os.path.exists(end2end_weights_path):
                 raise ValueError("End2End weights path does not exist for end2end mode")
             self.model.load_weights(end2end_weights_path)
         else:
             raise ValueError(f"Unknown mode: {self.mode}")
-        
+
         # Chuyển mô hình lên thiết bị (GPU/CPU) và kích hoạt chế độ eval (đóng băng dropout/batchnorm)
         self.model.to(self.device)
         self.model.eval()
-    
+
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
     #     Thực hiện đánh giá toàn diện mô hình trên bộ Benchmark tương ứng:
@@ -168,9 +188,13 @@ class Detector:
         # Tạo thư mục lưu kết quả đánh giá
         subdir = self.branch if self.mode == "branch" else self.mode
         if self.pretrain:
-            save_dir = os.path.join(self.ckpt, self.dir_name, subdir, f"pretrain_{benchmark_name}")
+            save_dir = os.path.join(
+                self.ckpt, self.dir_name, subdir, f"pretrain_{benchmark_name}"
+            )
         else:
-            save_dir = os.path.join(self.ckpt, self.dir_name, subdir, f"eval_{benchmark_name}")
+            save_dir = os.path.join(
+                self.ckpt, self.dir_name, subdir, f"eval_{benchmark_name}"
+            )
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
 
@@ -178,7 +202,7 @@ class Detector:
         log_path = f"{save_dir}/evaluation.log"
         if os.path.exists(log_path):
             os.remove(log_path)
-        
+
         logger_id = logger.add(
             log_path,
             format="{time:MM-DD at HH:mm:ss} | {level} | {module}:{line} | {message}",
@@ -195,23 +219,41 @@ class Detector:
             result_all[dataset_name] = {}
             output_all[dataset_name] = {}
             for model_name in eval_model_list:
-                test_dataset = TestDataset(dataset=dataset_name, model=model_name, transform=self.model.test_transform)
-                test_loader = torch.utils.data.DataLoader(test_dataset,
-                                                          batch_size=self.batch_size,
-                                                          shuffle=False,
-                                                          num_workers=4,
-                                                          pin_memory=True)
+                test_dataset = TestDataset(
+                    dataset=dataset_name,
+                    model=model_name,
+                    transform=self.model.test_transform,
+                )
+                test_loader = torch.utils.data.DataLoader(
+                    test_dataset,
+                    batch_size=self.batch_size,
+                    shuffle=False,
+                    num_workers=4,
+                    pin_memory=True,
+                )
 
                 y_pred, y_true = [], []
-                for (images, labels) in tqdm(test_loader, desc=f"Evaluating {benchmark_name} - {dataset_name} - {model_name}"):
+                for images, labels in tqdm(
+                    test_loader,
+                    desc=f"Evaluating {benchmark_name} - {dataset_name} - {model_name}",
+                ):
                     y_pred.extend(self.model.predict(images))
                     y_true.extend(labels.tolist())
 
                 ap, accuracy = evaluate(y_pred, y_true)
-                logger.info(f"Evaluate on {benchmark_name} - {dataset_name} - {model_name} | Size {len(y_true)} | AP {ap*100:.2f}% | Accuracy {accuracy*100:.2f}%")
+                logger.info(
+                    f"Evaluate on {benchmark_name} - {dataset_name} - {model_name} | Size {len(y_true)} | AP {ap * 100:.2f}% | Accuracy {accuracy * 100:.2f}%"
+                )
 
-                result_all[dataset_name][model_name] = {"size": len(y_true), "AP": ap, "Accuracy": accuracy}
-                output_all[dataset_name][model_name] = {"y_pred": y_pred, "y_true": y_true}
+                result_all[dataset_name][model_name] = {
+                    "size": len(y_true),
+                    "AP": ap,
+                    "Accuracy": accuracy,
+                }
+                output_all[dataset_name][model_name] = {
+                    "y_pred": y_pred,
+                    "y_true": y_true,
+                }
 
         # Lưu kết quả ra file JSON
         with open(save_result_path, "w") as f:
@@ -219,11 +261,25 @@ class Detector:
 
         with open(save_output_path, "w") as f:
             json.dump(output_all, f, indent=4)
-        
+
         # Tính toán và in ra hiệu năng trung bình trên toàn bộ benchmark
-        avg_ap = np.mean([result_all[dataset][model]["AP"] for dataset in eval_dataset_list for model in eval_model_list])
-        avg_accuracy = np.mean([result_all[dataset][model]["Accuracy"] for dataset in eval_dataset_list for model in eval_model_list])
-        logger.info(f"Average Performance on {benchmark_name} | AP {avg_ap*100:.2f}% | Accuracy {avg_accuracy*100:.2f}%")
+        avg_ap = np.mean(
+            [
+                result_all[dataset][model]["AP"]
+                for dataset in eval_dataset_list
+                for model in eval_model_list
+            ]
+        )
+        avg_accuracy = np.mean(
+            [
+                result_all[dataset][model]["Accuracy"]
+                for dataset in eval_dataset_list
+                for model in eval_model_list
+            ]
+        )
+        logger.info(
+            f"Average Performance on {benchmark_name} | AP {avg_ap * 100:.2f}% | Accuracy {avg_accuracy * 100:.2f}%"
+        )
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
@@ -247,7 +303,9 @@ class Detector:
 
         while True:
             try:
-                user_input = input("Nhập đường dẫn ảnh để quét (hoặc 'q' để thoát): ").strip()
+                user_input = input(
+                    "Nhập đường dẫn ảnh để quét (hoặc 'q' để thoát): "
+                ).strip()
             except (KeyboardInterrupt, EOFError):
                 print("\nĐã kết thúc phiên quét ảnh.")
                 break
@@ -258,10 +316,12 @@ class Detector:
                 break
 
             # Tẩy sạch ký tự nháy kép hoặc nháy đơn khi kéo thả đường dẫn trên Windows terminal
-            image_filepath = user_input.strip('"\'')
+            image_filepath = user_input.strip("\"'")
 
             if not os.path.exists(image_filepath):
-                print(f"[CẢNH BÁO] Không tìm thấy file: {image_filepath}. Vui lòng thử lại!\n")
+                print(
+                    f"[CẢNH BÁO] Không tìm thấy file: {image_filepath}. Vui lòng thử lại!\n"
+                )
                 continue
 
             try:
@@ -272,7 +332,11 @@ class Detector:
                 image = image.to(self.device)
 
                 # Nếu đang ở chế độ Fusion, phân tích sâu từng nhánh
-                if self.mode == "fusion" and hasattr(self.model, "sem") and hasattr(self.model, "art"):
+                if (
+                    self.mode == "fusion"
+                    and hasattr(self.model, "sem")
+                    and hasattr(self.model, "art")
+                ):
                     with torch.no_grad():
                         x_sem = self.model.sem_transform(image)
                         x_art = self.model.art_transform(image)
@@ -291,26 +355,44 @@ class Detector:
                         total_logit = self.model.fc(feat)
                         prediction = total_logit.sigmoid().item()
 
-                    tag_sem = "AI-Generated (TRUE)" if prob_sem > 0.5 else "Real (FALSE)"
-                    tag_art = "AI-Generated (TRUE)" if prob_art > 0.5 else "Real (FALSE)"
+                    tag_sem = (
+                        "AI-Generated (TRUE)" if prob_sem > 0.5 else "Real (FALSE)"
+                    )
+                    tag_art = (
+                        "AI-Generated (TRUE)" if prob_art > 0.5 else "Real (FALSE)"
+                    )
                     tag_final = "AI-Generated" if prediction > 0.5 else "Real"
 
                     print("\n" + "=" * 76)
-                    print(f"         KẾT QUẢ PHÂN TÍCH: {os.path.basename(image_filepath)}")
+                    print(
+                        f"         KẾT QUẢ PHÂN TÍCH: {os.path.basename(image_filepath)}"
+                    )
                     print("=" * 76)
-                    print(f"[Nhánh 1 - Semantic (CLIP)]: Xác suất = {prob_sem:.3f} ({prob_sem*100:.1f}%) -> {tag_sem}")
-                    print(f"                             Trọng số đóng góp w1 = {w_sem:.4f}, Logit = {logit_sem.item():.4f}")
+                    print(
+                        f"[Nhánh 1 - Semantic (CLIP)]: Xác suất = {prob_sem:.3f} ({prob_sem * 100:.1f}%) -> {tag_sem}"
+                    )
+                    print(
+                        f"                             Trọng số đóng góp w1 = {w_sem:.4f}, Logit = {logit_sem.item():.4f}"
+                    )
                     print("-" * 76)
-                    print(f"[Nhánh 2 - Artifact (VAE)]:  Xác suất = {prob_art:.3f} ({prob_art*100:.1f}%) -> {tag_art}")
-                    print(f"                             Trọng số đóng góp w2 = {w_art:.4f}, Logit = {logit_art.item():.4f}")
+                    print(
+                        f"[Nhánh 2 - Artifact (VAE)]:  Xác suất = {prob_art:.3f} ({prob_art * 100:.1f}%) -> {tag_art}"
+                    )
+                    print(
+                        f"                             Trọng số đóng góp w2 = {w_art:.4f}, Logit = {logit_art.item():.4f}"
+                    )
                     print("-" * 76)
-                    print(f"[Fusion Layer (Lớp kết hợp)]:")
+                    print("[Fusion Layer (Lớp kết hợp)]:")
                     print(f"  - Trọng số nhánh Semantic (w1) : {w_sem:.4f}")
                     print(f"  - Trọng số nhánh Artifact (w2) : {w_art:.4f}")
                     print(f"  - Độ lệch hệ số (Bias b)       : {bias:+.4f}")
-                    print(f"  - Công thức tổng hợp Logit     : ({w_sem:.4f} * {logit_sem.item():.4f}) + ({w_art:.4f} * {logit_art.item():.4f}) {bias:+.4f} = {total_logit.item():.4f}")
+                    print(
+                        f"  - Công thức tổng hợp Logit     : ({w_sem:.4f} * {logit_sem.item():.4f}) + ({w_art:.4f} * {logit_art.item():.4f}) {bias:+.4f} = {total_logit.item():.4f}"
+                    )
                     print("=" * 76)
-                    print(f"==> KẾT QUẢ TỔNG HỢP CUỐI CÙNG   : {prediction:.3f} ({prediction*100:.1f}%)")
+                    print(
+                        f"==> KẾT QUẢ TỔNG HỢP CUỐI CÙNG   : {prediction:.3f} ({prediction * 100:.1f}%)"
+                    )
                     print(f"==> KẾT LUẬN                     : {tag_final}")
                     print("=" * 76 + "\n")
                 else:

@@ -17,8 +17,9 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 """
 
 import torch
-from train import Trainer
+
 from evaluate import Detector
+from train import Trainer
 from utils import seed_torch
 
 
@@ -92,7 +93,7 @@ def main(args):
             train_dataset=args.train_dataset,
             pretrain=args.pretrain,
             ckpt=args.ckpt,
-            batch_size=args.batch_size
+            batch_size=args.batch_size,
         )
         # Nhận đường dẫn ảnh và trả về kết quả
         score = detector.scan()
@@ -102,61 +103,64 @@ def main(args):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser("Co-Spy: Combining Semantic and Pixel Features to Detect Synthetic Images by AI")
-    parser.add_argument("--gpu",
-                        type=int,
-                        default=0,
-                        help="GPU id to use")
-    parser.add_argument("--phase",
-                        type=str,
-                        default="test",
-                        choices=["train", "eval", "test"],
-                        help="Select the phase to run Co-Spy: train / eval / test")
-    parser.add_argument("--mode",
-                        type=str,
-                        default="fusion",
-                        choices=["branch", "fusion", "end2end"],
-                        help="Select the mode of Co-Spy training")
-    parser.add_argument("--train_dataset",
-                        type=str,
-                        default="sd-v1_4",
-                        help="Training dataset")
-    parser.add_argument("--branch",
-                        type=str,
-                        default="artifact",
-                        choices=["artifact", "semantic"],
-                        help="Branch detector (for branch mode)")
-    parser.add_argument("--pretrain",
-                        action="store_true",
-                        help="Whether to use pre-trained weights for evaluation")
-    parser.add_argument("--ckpt",
-                        type=str,
-                        default="ckpt",
-                        help="Checkpoint directory")
-    parser.add_argument("--epochs",
-                        type=int,
-                        default=10,
-                        help="Number of training epochs")
-    parser.add_argument("--batch_size",
-                        type=int,
-                        default=32,
-                        help="Batch size")
-    parser.add_argument("--seed",
-                        type=int,
-                        default=1024,
-                        help="Random seed")
-    parser.add_argument("--feat_interp",
-                        action="store_true",
-                        default=False,
-                        help="Feature-space interpolation for semantic branch.")
-    parser.add_argument("--feat_interp_alpha",
-                        type=float,
-                        default=0.2,
-                        help="Beta(alpha, alpha) shape for feat_interp.")
-    parser.add_argument("--feat_interp_ratio",
-                        type=float,
-                        default=0.5,
-                        help="Fraction of batch to apply feat_interp.")
+
+    parser = argparse.ArgumentParser(
+        "Co-Spy: Combining Semantic and Pixel Features to Detect Synthetic Images by AI"
+    )
+    parser.add_argument("--gpu", type=int, default=0, help="GPU id to use")
+    parser.add_argument(
+        "--phase",
+        type=str,
+        default="test",
+        choices=["train", "eval", "test"],
+        help="Select the phase to run Co-Spy: train / eval / test",
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="fusion",
+        choices=["branch", "fusion", "end2end"],
+        help="Select the mode of Co-Spy training",
+    )
+    parser.add_argument(
+        "--train_dataset", type=str, default="sd-v1_4", help="Training dataset"
+    )
+    parser.add_argument(
+        "--branch",
+        type=str,
+        default="artifact",
+        choices=["artifact", "semantic"],
+        help="Branch detector (for branch mode)",
+    )
+    parser.add_argument(
+        "--pretrain",
+        action="store_true",
+        help="Whether to use pre-trained weights for evaluation",
+    )
+    parser.add_argument("--ckpt", type=str, default="ckpt", help="Checkpoint directory")
+    parser.add_argument(
+        "--epochs", type=int, default=10, help="Number of training epochs"
+    )
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
+    parser.add_argument("--seed", type=int, default=1024, help="Random seed")
+    parser.add_argument(
+        "--feat_interp",
+        action="store_true",
+        default=False,
+        help="Feature-space interpolation for semantic branch.",
+    )
+    parser.add_argument(
+        "--feat_interp_alpha",
+        type=float,
+        default=0.2,
+        help="Beta(alpha, alpha) shape for feat_interp.",
+    )
+    parser.add_argument(
+        "--feat_interp_ratio",
+        type=float,
+        default=0.5,
+        help="Fraction of batch to apply feat_interp.",
+    )
 
     args = parser.parse_args()
 

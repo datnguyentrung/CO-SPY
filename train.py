@@ -5,10 +5,10 @@ CHỨC NĂNG & NHIỆM VỤ CỦA FILE:
     - Cung cấp lớp Trainer điều hành toàn bộ quy trình huấn luyện (Training Pipeline) của CO-SPY.
     - Hỗ trợ 3 cơ chế huấn luyện:
         1. 'branch': Huấn luyện độc lập từng nhánh (ArtifactDetector hoặc SemanticDetector).
-        2. 'fusion': Nạp trọng số đã huấn luyện của 2 nhánh, đóng băng (freeze) và chỉ huấn luyện 
+        2. 'fusion': Nạp trọng số đã huấn luyện của 2 nhánh, đóng băng (freeze) và chỉ huấn luyện
            lớp Linear phân loại kết hợp (Late Fusion Classifier).
         3. 'end2end': Huấn luyện đồng thời cả 2 nhánh từ đầu đến cuối (End-to-End).
-    - Quản lý Optimizer (AdamW), hàm mất mát (BCEWithLogitsLoss), và Learning Rate Scheduler 
+    - Quản lý Optimizer (AdamW), hàm mất mát (BCEWithLogitsLoss), và Learning Rate Scheduler
       (Cosine Annealing hoặc Step-decay).
     - Hỗ trợ kỹ thuật tăng cường đặc trưng (Feature-space Interpolation / Mixup) cho nhánh Semantic.
     - Theo dõi đánh giá mô hình sau mỗi epoch, tự động lưu lại trọng số tốt nhất (best_model.pth)
@@ -30,17 +30,17 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 =============================================================================
 """
 
+import importlib
 import os
 import time
+import warnings
+
 import torch
-import importlib
-from PIL import Image
 from loguru import logger
 
+from dataSets import FusionTrainDataset, TrainDataset
 from utils import evaluate
-from dataSets import TrainDataset, FusionTrainDataset
 
-import warnings
 warnings.filterwarnings("ignore")
 
 
@@ -50,7 +50,7 @@ warnings.filterwarnings("ignore")
 class Trainer:
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
-    #     Khởi tạo bộ điều phối huấn luyện: nạp mô hình theo dataset và mode, 
+    #     Khởi tạo bộ điều phối huấn luyện: nạp mô hình theo dataset và mode,
     #     thiết lập Optimizer AdamW, Loss BCEWithLogitsLoss, cấu hình learning rate.
     # INPUT:
     #     - mode (str): Chế độ huấn luyện ('branch', 'fusion', 'end2end').
@@ -66,17 +66,19 @@ class Trainer:
     # OUTPUT:
     #     - Đối tượng Trainer đã sẵn sàng để gọi phương thức train().
     # -------------------------------------------------------------------------
-    def __init__(self,
-                 mode: str,
-                 device: str,
-                 branch: str,
-                 train_dataset: str,
-                 ckpt: str = "ckpt",
-                 epochs: int = 10,
-                 batch_size: int = 32,
-                 feat_interp: bool = False,
-                 feat_interp_alpha: float = 0.2,
-                 feat_interp_ratio: float = 0.5):
+    def __init__(
+        self,
+        mode: str,
+        device: str,
+        branch: str,
+        train_dataset: str,
+        ckpt: str = "ckpt",
+        epochs: int = 10,
+        batch_size: int = 32,
+        feat_interp: bool = False,
+        feat_interp_alpha: float = 0.2,
+        feat_interp_ratio: float = 0.5,
+    ):
 
         self.device = device
         self.mode = mode
@@ -89,8 +91,8 @@ class Trainer:
         self.feat_interp_alpha = feat_interp_alpha
         # Ánh xạ chuẩn xác tên package Python và tên thư mục dữ liệu/ckpt
         if train_dataset in ["sd_v1_4", "sd-v1_4"]:
-            pkg_name = "sd_v1_4"   # Tên thư mục code trong detectors/
-            dir_name = "sd-v1_4"   # Tên thư mục trong data/train/ và ckpt/
+            pkg_name = "sd_v1_4"  # Tên thư mục code trong detectors/
+            dir_name = "sd-v1_4"  # Tên thư mục trong data/train/ và ckpt/
         else:
             pkg_name = train_dataset
             dir_name = train_dataset
@@ -103,8 +105,8 @@ class Trainer:
 
         # Khởi tạo mô hình dựa theo chế độ train (mode)
         if self.mode == "branch":
-            ArtifactDetector = getattr(detector_module, "ArtifactDetector")
-            SemanticDetector = getattr(detector_module, "SemanticDetector")
+            ArtifactDetector = detector_module.ArtifactDetector
+            SemanticDetector = detector_module.SemanticDetector
             if self.branch == "artifact":
                 self.model = ArtifactDetector()
             elif self.branch == "semantic":
@@ -113,19 +115,28 @@ class Trainer:
                 raise ValueError(f"Unknown detector: {self.branch}")
         elif self.mode == "fusion":
             # Chế độ Fusion yêu cầu phải có sẵn trọng số đã train xong của 2 nhánh con
-            c_dir = os.path.join(self.ckpt, dir_name) if os.path.exists(os.path.join(self.ckpt, dir_name)) else os.path.join(self.ckpt, train_dataset)
+            c_dir = (
+                os.path.join(self.ckpt, dir_name)
+                if os.path.exists(os.path.join(self.ckpt, dir_name))
+                else os.path.join(self.ckpt, train_dataset)
+            )
             semantic_weights_path = os.path.join(c_dir, "semantic", "best_model.pth")
             artifact_weights_path = os.path.join(c_dir, "artifact", "best_model.pth")
-            if not os.path.exists(semantic_weights_path) or not os.path.exists(artifact_weights_path):
-                raise ValueError(f"Semantic or Artifact weights path does not exist for fusion mode. Looked in: {semantic_weights_path}, {artifact_weights_path}")
-            CoSpyFusionDetector = getattr(detector_module, "CoSpyFusionDetector")
+            if not os.path.exists(semantic_weights_path) or not os.path.exists(
+                artifact_weights_path
+            ):
+                raise ValueError(
+                    f"Semantic or Artifact weights path does not exist for fusion mode. Looked in: {semantic_weights_path}, {artifact_weights_path}"
+                )
+            CoSpyFusionDetector = detector_module.CoSpyFusionDetector
             self.model = CoSpyFusionDetector(
                 semantic_weights_path=semantic_weights_path,
-                artifact_weights_path=artifact_weights_path)
+                artifact_weights_path=artifact_weights_path,
+            )
             self.weight_init = 0.5 if dir_name == "sd-v1_4" else 0.0
             self.bias_floor = 2.0 if dir_name == "sd-v1_4" else 0.0
         elif self.mode == "end2end":
-            End2EndDetector = getattr(detector_module, "End2EndDetector")
+            End2EndDetector = detector_module.End2EndDetector
             self.model = End2EndDetector()
         else:
             raise ValueError(f"Unknown mode: {self.mode}")
@@ -153,7 +164,9 @@ class Trainer:
         # Learning rate: 1e-4 cho train nhánh thông thường, 1e-1 cho tinh chỉnh tầng fusion
         self._lr = 1e-4 if self.mode != "fusion" else 1e-1
         self._lr_min = self._lr / self.epochs
-        self.optimizer = torch.optim.AdamW(params, lr=self._lr, betas=(_beta1, 0.999), weight_decay=_weight_decay)
+        self.optimizer = torch.optim.AdamW(
+            params, lr=self._lr, betas=(_beta1, 0.999), weight_decay=_weight_decay
+        )
 
         # Hàm mất mát phân loại nhị phân (Binary Cross Entropy with Logits)
         self.criterion = torch.nn.BCEWithLogitsLoss()
@@ -197,7 +210,9 @@ class Trainer:
         d2 = delta.unsqueeze(1)
         feats_new[mix_idx] = d2 * feats[mix_idx] + (1.0 - d2) * feats[partner]
         labels_new = labels_f.clone()
-        labels_new[mix_idx] = delta * labels_f[mix_idx] + (1.0 - delta) * labels_f[partner]
+        labels_new[mix_idx] = (
+            delta * labels_f[mix_idx] + (1.0 - delta) * labels_f[partner]
+        )
         return feats_new, labels_new
 
     # -------------------------------------------------------------------------
@@ -207,7 +222,7 @@ class Trainer:
     #     - Tính hàm mất mát loss qua BCEWithLogitsLoss (kèm phạt bias floor nếu là fusion).
     #     - Thực hiện backward() và optimizer.step() để cập nhật trọng số mạng.
     # INPUT:
-    #     - batch_data (tuple): 
+    #     - batch_data (tuple):
     #         + Với fusion: (sem_images, art_images, labels)
     #         + Với branch/end2end: (images, labels)
     # OUTPUT:
@@ -236,13 +251,14 @@ class Trainer:
 
             # Nội suy không gian đặc trưng (Feature-space interpolation / Mixup) cho nhánh Semantic
             use_feat_interp = (
-                self.feat_interp
-                and self.mode == "branch"
-                and self.branch == "semantic"
+                self.feat_interp and self.mode == "branch" and self.branch == "semantic"
             )
             if use_feat_interp:
                 with torch.no_grad():
-                    encode_fn = getattr(self.model.clip, "encode_image", None) or self.model.clip.get_image_features
+                    encode_fn = (
+                        getattr(self.model.clip, "encode_image", None)
+                        or self.model.clip.get_image_features
+                    )
                     feats = encode_fn(inputs)
                 feats_mixed, labels_soft = self._mix_features(feats, labels)
                 outputs = self.model.fc(feats_mixed)
@@ -277,15 +293,15 @@ class Trainer:
         if self.lr_step_per_batch:
             total_steps = self.epochs * steps_per_epoch
             self.lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                self.optimizer, T_max=total_steps, eta_min=self._lr_min,
+                self.optimizer,
+                T_max=total_steps,
+                eta_min=self._lr_min,
             )
             logger.info(
                 f"LR cosine {self._lr:.1e} -> {self._lr_min:.1e} over {total_steps} steps"
             )
         else:
-            logger.info(
-                f"LR step-decay start {self._lr:.1e}, x0.9 every 10 epochs"
-            )
+            logger.info(f"LR step-decay start {self._lr:.1e}, x0.9 every 10 epochs")
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
@@ -310,7 +326,7 @@ class Trainer:
     # INPUT:
     #     - Không nhận tham số ngoài self (sử dụng các thuộc tính đã cấu hình).
     # OUTPUT:
-    #     - Không trả về giá trị. Các file trọng số ('best_model.pth', 'final_model.pth') 
+    #     - Không trả về giá trị. Các file trọng số ('best_model.pth', 'final_model.pth')
     #       và file log ('training.log') được lưu tại thư mục ckpt.
     # -------------------------------------------------------------------------
     def train(self):
@@ -336,27 +352,45 @@ class Trainer:
 
         # Nạp dữ liệu huấn luyện và kiểm thử (DataLoader)
         if self.mode == "fusion":
-            base_train = TrainDataset(train_dataset=self.train_dataset, split="val", transform=None)
-            base_val = TrainDataset(train_dataset=self.train_dataset, split="val", transform=None)
-            train_dataset = FusionTrainDataset(base_train, self.model.sem.train_transform, self.model.art.train_transform)
-            val_dataset = FusionTrainDataset(base_val, self.model.sem.val_transform, self.model.art.val_transform)
+            base_train = TrainDataset(
+                train_dataset=self.train_dataset, split="val", transform=None
+            )
+            base_val = TrainDataset(
+                train_dataset=self.train_dataset, split="val", transform=None
+            )
+            train_dataset = FusionTrainDataset(
+                base_train,
+                self.model.sem.train_transform,
+                self.model.art.train_transform,
+            )
+            val_dataset = FusionTrainDataset(
+                base_val, self.model.sem.val_transform, self.model.art.val_transform
+            )
         else:
-            train_dataset = TrainDataset(train_dataset=self.train_dataset,
-                                         split="train",
-                                         transform=self.model.train_transform)
-            val_dataset = TrainDataset(train_dataset=self.train_dataset,
-                                       split="val",
-                                       transform=self.model.val_transform)
-        train_loader = torch.utils.data.DataLoader(train_dataset,
-                                                   batch_size=self.batch_size,
-                                                   shuffle=True,
-                                                   num_workers=4,
-                                                   pin_memory=True)
-        val_loader = torch.utils.data.DataLoader(val_dataset,
-                                                 batch_size=self.batch_size,
-                                                 shuffle=False,
-                                                 num_workers=4,
-                                                 pin_memory=True)
+            train_dataset = TrainDataset(
+                train_dataset=self.train_dataset,
+                split="train",
+                transform=self.model.train_transform,
+            )
+            val_dataset = TrainDataset(
+                train_dataset=self.train_dataset,
+                split="val",
+                transform=self.model.val_transform,
+            )
+        train_loader = torch.utils.data.DataLoader(
+            train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=4,
+            pin_memory=True,
+        )
+        val_loader = torch.utils.data.DataLoader(
+            val_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=4,
+            pin_memory=True,
+        )
 
         logger.info(f"Train size {len(train_dataset)} | Val size {len(val_dataset)}")
         if self.feat_interp and self.mode == "branch" and self.branch == "semantic":
@@ -379,7 +413,9 @@ class Trainer:
                 # In thông số sau mỗi 100 batch
                 if (step_id + 1) % 100 == 0:
                     time_end = time.time()
-                    logger.info(f"Epoch {epoch} | Batch {step_id + 1}/{len(train_loader)} | Loss {eval_loss:.4f} | AP {ap*100:.2f}% | Accuracy {accuracy*100:.2f}% | Time {time_end-time_start:.2f}s")
+                    logger.info(
+                        f"Epoch {epoch} | Batch {step_id + 1}/{len(train_loader)} | Loss {eval_loss:.4f} | AP {ap * 100:.2f}% | Accuracy {accuracy * 100:.2f}% | Time {time_end - time_start:.2f}s"
+                    )
                     time_start = time.time()
 
             # Đánh giá mô hình trên tập validation (Evaluation)
@@ -391,7 +427,9 @@ class Trainer:
                         sem_t, art_t, labels = batch
                         sem_t = sem_t.to(self.device, non_blocking=True)
                         art_t = art_t.to(self.device, non_blocking=True)
-                        feat = torch.cat([self.model.sem(sem_t), self.model.art(art_t)], dim=1)
+                        feat = torch.cat(
+                            [self.model.sem(sem_t), self.model.art(art_t)], dim=1
+                        )
                         logits = self.model.fc(feat)
                         y_pred.extend(logits.sigmoid().flatten().cpu().tolist())
                         y_true.extend(labels.tolist())
@@ -403,7 +441,9 @@ class Trainer:
             ap, accuracy = evaluate(y_pred, y_true)
             eval_type = "Test" if self.mode == "branch" else "Total"
             cur_lr = self.optimizer.param_groups[0]["lr"]
-            logger.info(f"Epoch {epoch} | {eval_type} AP {ap*100:.2f}% | {eval_type} Accuracy {accuracy*100:.2f}% | LR {cur_lr:.2e}")
+            logger.info(
+                f"Epoch {epoch} | {eval_type} AP {ap * 100:.2f}% | {eval_type} Accuracy {accuracy * 100:.2f}% | LR {cur_lr:.2e}"
+            )
 
             if not self.lr_step_per_batch:
                 self._step_lr_per_epoch(epoch)
@@ -412,7 +452,7 @@ class Trainer:
             if accuracy >= best_acc:
                 best_acc = accuracy
                 self.model.save_weights(f"{model_dir}/best_model.pth")
-                logger.info(f"Best model saved with accuracy {best_acc*100:.2f}%")
+                logger.info(f"Best model saved with accuracy {best_acc * 100:.2f}%")
 
             # Lưu checkpoint định kỳ mỗi 5 epoch
             if epoch % 5 == 0:

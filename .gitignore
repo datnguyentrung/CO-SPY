@@ -11,3 +11,4 @@ pretrained/progan
 pretrained/sd-v1_4
 imgs**
 .vscode**
+.temp**
