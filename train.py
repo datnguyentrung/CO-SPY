@@ -240,8 +240,19 @@ class Trainer:
             labels = labels.to(self.device, non_blocking=True)
             pred_sem = self.model.sem(sem_t)
             pred_art = self.model.art(art_t)
+
+
             feat = torch.cat([pred_sem, pred_art], dim=1)
+
+            feat = torch.nn.functional.dropout(
+                feat,
+                p = 0.15,
+                training=self.model.training,
+            )
+
             outputs = self.model.fc(feat)
+
+
             loss = self.criterion(outputs, labels.unsqueeze(1).float())
             b = self.model.fc.bias[0]
             loss = loss + torch.nn.functional.relu(self.bias_floor - b)

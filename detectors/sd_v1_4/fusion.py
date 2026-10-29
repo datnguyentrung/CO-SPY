@@ -82,6 +82,17 @@ class CoSpyFusionDetector(BaseDetector):
         # Xây dựng các phép tiền xử lý ảnh chung (không normalize ở đây vì đã làm trong forward)
         self._build_transforms()
 
+    def train(self, mode: bool = True):
+        # Đặt chế độ train/eval cho toàn bộ mô hình trước
+        super().train(mode)
+
+        # Hai nhánh đã được huấn luyện sẵn: luôn giữ ở eval
+        self.sem.eval()
+        self.art.eval()
+
+        # Lớp self.fc vẫn theo mode của mô hình tổng
+        return self
+
     # -------------------------------------------------------------------------
     # CHỨC NĂNG: Xây dựng pipeline tiền xử lý ảnh chung cho train, val và test
     # INPUT: Không có

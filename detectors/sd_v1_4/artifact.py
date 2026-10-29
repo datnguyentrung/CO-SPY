@@ -24,14 +24,56 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 =============================================================================
 """
 
+import math
+import random
+
 import torch
 from diffusers import StableDiffusionPipeline
+from PIL import Image
 from torch import nn
 from torchvision import transforms
 
 from utils import data_augment
 
 from .base import BaseDetector
+
+
+class AlignedCrop:
+    """Crop ảnh ở độ phân giải gốc, căn tọa độ crop theo bội số 8."""
+
+    def __init__(self, size=224, train=True):
+        self.size = size
+        self.train = train
+
+    def __call__(self, img):
+        w, h = img.size
+
+        # Nếu ảnh quá nhỏ thì phóng lên vừa đủ để crop
+        if min(w, h) < self.size:
+            scale = self.size / min(w, h)
+            new_w = math.ceil(w * scale)
+            new_h = math.ceil(h * scale)
+
+            resampling = getattr(Image, "Resampling", Image)
+            img = img.resize(
+                (new_w, new_h),
+                resample=resampling.BICUBIC,
+            )
+            w, h = img.size
+
+        max_x = w - self.size
+        max_y = h - self.size
+
+        if self.train:
+            # Chọn tọa độ ngẫu nhiên là bội số của 8
+            x = random.randrange(0, max_x // 8 + 1) * 8
+            y = random.randrange(0, max_y // 8 + 1) * 8
+        else:
+            # Crop giữa ảnh, sau đó căn lại theo bội số 8
+            x = (max_x // 2) // 8 * 8
+            y = (max_y // 2) // 8 * 8
+
+        return img.crop((x, y, x + self.size, y + self.size))
 
 
 class ArtifactDetector(BaseDetector):
@@ -97,18 +139,17 @@ class ArtifactDetector(BaseDetector):
             "jpg_qual": self.jpg_qual,
         }
 
-        random_crop = transforms.RandomCrop(self.cropSize)
-        center_crop = transforms.CenterCrop(self.cropSize)
+        aligned_train_crop = AlignedCrop(224, train=True)
+        aligned_eval_crop = AlignedCrop(224, train=False)
+
         flip_func = transforms.RandomHorizontalFlip()
-        rz_func = transforms.Resize(self.loadSize)
         aug_func = transforms.Lambda(lambda x: data_augment(x, self.aug_config))
 
         # Pipeline cho tập Train
         self.train_transform = transforms.Compose(
             [
                 aug_func,
-                rz_func,
-                random_crop,
+                aligned_train_crop,
                 flip_func,
                 transforms.ToTensor(),
                 transforms.Normalize(mean=self.mean, std=self.std),
@@ -118,8 +159,7 @@ class ArtifactDetector(BaseDetector):
         # Pipeline cho tập Val
         self.val_transform = transforms.Compose(
             [
-                rz_func,
-                random_crop,
+                aligned_eval_crop,
                 transforms.ToTensor(),
                 transforms.Normalize(mean=self.mean, std=self.std),
             ]
@@ -128,8 +168,7 @@ class ArtifactDetector(BaseDetector):
         # Pipeline cho tập Test
         self.test_transform = transforms.Compose(
             [
-                rz_func,
-                center_crop,
+                aligned_eval_crop,
                 transforms.ToTensor(),
                 transforms.Normalize(mean=self.mean, std=self.std),
             ]
