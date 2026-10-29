@@ -284,7 +284,59 @@ bash train.sh --gpu 2 --dataset sd-v1_4
 # Train an optimal CO-SPY detector using the best practice script on CNNDet
 bash train.sh --gpu 2 --dataset progan
 ```
-The trained models will be saved to `ckpt/<train_dataset>/fusion`.
+The trained models are saved to `ckpt/<train_dataset>/fusion` for v1 and
+`ckpt/<train_dataset>/fusion_v2` for the recommended adaptive head.
+
+#### Adaptive fusion v2/v3
+
+`fusion_head=v1` is the released two-logit calibration head and remains the
+default for backward compatibility. For `sd-v1_4`, train the feature-level
+adaptive head with:
+
+```bash
+python main.py \
+    --phase train \
+    --gpu 0 \
+    --mode fusion \
+    --train_dataset sd-v1_4 \
+    --fusion_head v2 \
+    --epochs 30
+```
+
+The first fusion run caches frozen semantic/artifact features under a
+content-specific subdirectory of `ckpt/sd-v1_4/fusion_v2/features`. Later runs
+with unchanged branch checkpoints and preprocessing reuse the cache. Use
+`--no-cache-features` only for debugging. Checkpoints are saved to
+`ckpt/sd-v1_4/fusion_v2`.
+
+Use AIGCDetectBenchMark as the development set and keep Co-Spy-Bench untouched
+until final evaluation:
+
+```bash
+# Development: model selection and ablation
+python main.py --phase eval --gpu 0 --mode fusion --train_dataset sd-v1_4 \
+    --fusion_head v2 --benchmark aigcdetect
+
+# Final: use a new checkpoint and freeze the chosen configuration
+python main.py --phase eval --gpu 0 --mode fusion --train_dataset sd-v1_4 \
+    --fusion_head v2 --benchmark cospy --artifact_views 1
+```
+
+Optional NPR fusion requires a separately trained NPR branch:
+
+```bash
+python main.py --phase train --gpu 0 --mode branch --branch npr \
+    --train_dataset sd-v1_4 --epochs 20
+python main.py --phase train --gpu 0 --mode fusion --train_dataset sd-v1_4 \
+    --fusion_head v3 --epochs 30
+python main.py --phase eval --gpu 0 --mode fusion --train_dataset sd-v1_4 \
+    --fusion_head v3 --benchmark aigcdetect --artifact_views 1
+```
+
+After selecting one or two artifact views on the development set, compare both
+configurations on the final Co-Spy-Bench run. `--downscale_prob` is an optional
+semantic-only ablation; it defaults to zero because downscaling can destroy
+pixel-level artifacts.
 
 You can also customize the training parameters for the training of each branch and the calibration step:
 ```bash

@@ -358,3 +358,33 @@ def evaluate(y_pred, y_true):
     ap = average_precision_score(y_true, y_pred)
     accuracy = ((np.array(y_pred) > 0.5) == y_true).mean()
     return ap, accuracy
+
+
+def bootstrap_ap_ci(
+    y_pred,
+    y_true,
+    n_samples: int = 500,
+    confidence: float = 0.95,
+    seed: int = 1024,
+):
+    """Return a percentile bootstrap confidence interval for AP."""
+    y_pred = np.asarray(y_pred)
+    y_true = np.asarray(y_true)
+    if n_samples <= 0:
+        return [None, None]
+
+    rng = np.random.default_rng(seed)
+    values = []
+    for _ in range(n_samples):
+        indices = rng.integers(0, len(y_true), size=len(y_true))
+        sample_labels = y_true[indices]
+        if np.unique(sample_labels).size < 2:
+            continue
+        values.append(
+            average_precision_score(sample_labels, y_pred[indices])
+        )
+    if not values:
+        return [None, None]
+    alpha = (1.0 - confidence) / 2.0
+    lower, upper = np.quantile(values, [alpha, 1.0 - alpha])
+    return [float(lower), float(upper)]

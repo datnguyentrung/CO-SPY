@@ -31,8 +31,10 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 import os
 
 import numpy as np
+import torch
 from PIL import Image
 from torch.utils.data import Dataset
+from torchvision import transforms
 
 from utils import get_list, png_to_jpeg
 
@@ -66,7 +68,7 @@ class TrainDataset(Dataset):
         if train_dataset == "progan":
             real_list = get_list(os.path.join(root_dir, split), must_contain="0_real")
             fake_list = get_list(os.path.join(root_dir, split), must_contain="1_fake")
-        elif train_dataset == "sd-v1_4":
+        elif train_dataset in ["sd-v1_4", "sd_v1_4"]:
             real_list = get_list(os.path.join(root_dir, "mscoco2017", f"{split}2017"))
             fake_list = get_list(
                 os.path.join(root_dir, "stable-diffusion-v1-4", f"{split}2017")
@@ -285,10 +287,17 @@ class FusionTrainDataset(Dataset):
     # OUTPUT:
     #     - Đối tượng FusionTrainDataset.
     # -------------------------------------------------------------------------
-    def __init__(self, base: TrainDataset, sem_transform, art_transform):
+    def __init__(
+        self,
+        base: TrainDataset,
+        sem_transform,
+        art_transform,
+        npr_transform=None,
+    ):
         self.base = base
         self.sem_transform = sem_transform
         self.art_transform = art_transform
+        self.npr_transform = npr_transform
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
@@ -316,4 +325,52 @@ class FusionTrainDataset(Dataset):
         img_path = self.base.total_list[i]
         label = self.base.labels_dict[img_path]
         img = Image.open(img_path).convert("RGB")
-        return self.sem_transform(img), self.art_transform(img), label
+        sem_image = self.sem_transform(img)
+        art_image = self.art_transform(img)
+        if self.npr_transform is None:
+            return sem_image, art_image, label
+        return sem_image, art_image, self.npr_transform(img), label
+
+
+class FusionEvalDataset(Dataset):
+    """Apply semantic and multi-view artifact transforms above a raw test set."""
+
+    def __init__(self, base, sem_transform, artifact_view_transform):
+        self.base = base
+        self.sem_transform = sem_transform
+        self.artifact_view_transform = artifact_view_transform
+
+    def __len__(self):
+        return len(self.base)
+
+    def __getitem__(self, index):
+        image, label = self.base[index]
+        if not isinstance(image, Image.Image):
+            image = transforms.ToPILImage()(image)
+        return (
+            self.sem_transform(image),
+            self.artifact_view_transform(image),
+            int(label),
+        )
+
+
+class FusionFeatureDataset(Dataset):
+    """Load cached branch features from numpy arrays."""
+
+    def __init__(self, sem_features, art_features, labels, npr_features=None):
+        self.sem_features = sem_features
+        self.art_features = art_features
+        self.labels = labels
+        self.npr_features = npr_features
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, index):
+        sem = torch.from_numpy(np.asarray(self.sem_features[index]))
+        art = torch.from_numpy(np.asarray(self.art_features[index]))
+        label = int(self.labels[index])
+        if self.npr_features is None:
+            return sem, art, label
+        npr = torch.from_numpy(np.asarray(self.npr_features[index]))
+        return sem, art, npr, label

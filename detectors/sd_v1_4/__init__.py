@@ -26,6 +26,7 @@ from .artifact import ArtifactDetector
 from .base import BaseDetector
 from .end2end import End2EndDetector
 from .fusion import CoSpyFusionDetector
+from .npr import NPRDetector
 from .semantic import SemanticDetector
 
 __all__ = [
@@ -33,5 +34,6 @@ __all__ = [
     "BaseDetector",
     "CoSpyFusionDetector",
     "End2EndDetector",
+    "NPRDetector",
     "SemanticDetector",
 ]

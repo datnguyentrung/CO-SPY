@@ -18,13 +18,35 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 =============================================================================
 """
 
+import random
+
 import open_clip
 import torch
+from PIL import Image
 from torchvision import transforms
 
 from utils import data_augment
 
 from .base import BaseDetector
+
+
+class RandomDownscale:
+    """Downsample and restore size without changing semantic content."""
+
+    def __init__(self, probability: float = 0.0, min_scale: float = 0.5):
+        self.probability = probability
+        self.min_scale = min_scale
+
+    def __call__(self, image):
+        if random.random() >= self.probability:
+            return image
+        width, height = image.size
+        scale = random.uniform(self.min_scale, 1.0)
+        reduced = image.resize(
+            (max(1, round(width * scale)), max(1, round(height * scale))),
+            Image.Resampling.BICUBIC,
+        )
+        return reduced.resize((width, height), Image.Resampling.BICUBIC)
 
 
 class SemanticDetector(BaseDetector):
@@ -43,7 +65,9 @@ class SemanticDetector(BaseDetector):
     # OUTPUT:
     #   - Đối tượng SemanticDetector đã sẵn sàng huấn luyện hoặc đánh giá.
     # -------------------------------------------------------------------------
-    def __init__(self, dim_clip=1152, num_classes=1):
+    def __init__(
+        self, dim_clip=1152, num_classes=1, downscale_prob: float = 0.0
+    ):
         super().__init__()
 
         # Tải mô hình OpenCLIP pretrained (SigLIP ViT-SO400M-14, resolution 384x384)
@@ -59,6 +83,7 @@ class SemanticDetector(BaseDetector):
 
         # Lớp phân loại nhị phân (Binary Classifier): Chuyển vector đặc trưng 1152 chiều về 1 logit
         self.fc = torch.nn.Linear(dim_clip, num_classes)
+        self.downscale_prob = downscale_prob
 
         # Xây dựng các bước tiền xử lý ảnh
         self._build_transforms()
@@ -112,10 +137,12 @@ class SemanticDetector(BaseDetector):
             lambda x: data_augment(x, self.train_aug_config)
         )
         val_aug_func = transforms.Lambda(lambda x: data_augment(x, self.val_aug_config))
+        downscale_func = RandomDownscale(self.downscale_prob)
 
         # Pipeline cho tập Train: Resize -> Augment -> Cắt ngẫu nhiên -> Lật ngang -> ToTensor -> Normalize
         self.train_transform = transforms.Compose(
             [
+                downscale_func,
                 rz_func,
                 train_aug_func,
                 random_crop,
@@ -129,8 +156,7 @@ class SemanticDetector(BaseDetector):
         self.val_transform = transforms.Compose(
             [
                 rz_func,
-                val_aug_func,
-                random_crop,
+                center_crop,
                 transforms.ToTensor(),
                 transforms.Normalize(mean=self.mean, std=self.std),
             ]

@@ -63,6 +63,12 @@ def main(args):
             feat_interp=args.feat_interp,
             feat_interp_alpha=args.feat_interp_alpha,
             feat_interp_ratio=args.feat_interp_ratio,
+            fusion_head=args.fusion_head,
+            npr=args.npr,
+            artifact_views=args.artifact_views,
+            cache_features=args.cache_features,
+            branch_dropout=args.branch_dropout,
+            downscale_prob=args.downscale_prob,
         )
         # Bắt đầu quá trình huấn luyện
         trainer.train()
@@ -79,6 +85,12 @@ def main(args):
             ckpt=args.ckpt,
             batch_size=args.batch_size,
             branch=args.branch,
+            fusion_head=args.fusion_head,
+            npr=args.npr,
+            artifact_views=args.artifact_views,
+            branch_dropout=args.branch_dropout,
+            benchmark=args.benchmark,
+            bootstrap_samples=args.bootstrap_samples,
         )
         # Bắt đầu đánh giá toàn diện trên benchmark
         detector.evaluate_benchmark()
@@ -94,6 +106,10 @@ def main(args):
             pretrain=args.pretrain,
             ckpt=args.ckpt,
             batch_size=args.batch_size,
+            fusion_head=args.fusion_head,
+            npr=args.npr,
+            artifact_views=args.artifact_views,
+            branch_dropout=args.branch_dropout,
         )
         # Nhận đường dẫn ảnh và trả về kết quả
         score = detector.scan()
@@ -129,7 +145,7 @@ if __name__ == "__main__":
         "--branch",
         type=str,
         default="artifact",
-        choices=["artifact", "semantic"],
+        choices=["artifact", "semantic", "npr"],
         help="Branch detector (for branch mode)",
     )
     parser.add_argument(
@@ -161,6 +177,57 @@ if __name__ == "__main__":
         default=0.5,
         help="Fraction of batch to apply feat_interp.",
     )
+    parser.add_argument(
+        "--fusion_head",
+        type=str,
+        default="v1",
+        choices=["v1", "v2", "v3", "v3_npr"],
+        help="Fusion head version. v1 preserves released checkpoints.",
+    )
+    parser.add_argument(
+        "--npr",
+        action="store_true",
+        help="Enable the optional NPR stream (equivalent to fusion_head=v3).",
+    )
+    parser.add_argument(
+        "--artifact_views",
+        type=int,
+        default=1,
+        choices=[1, 2],
+        help="Number of native-resolution artifact views used during evaluation.",
+    )
+    parser.add_argument(
+        "--branch_dropout",
+        type=float,
+        default=0.15,
+        help="Probability of dropping one complete adaptive-fusion stream.",
+    )
+    parser.add_argument(
+        "--downscale_prob",
+        type=float,
+        default=0.0,
+        help="Optional semantic-only downscale/upscale ablation probability.",
+    )
+    parser.add_argument(
+        "--benchmark",
+        type=str,
+        default="auto",
+        choices=["auto", "cospy", "aigcdetect"],
+        help="Development/final benchmark. auto=cospy for SD and aigcdetect for ProGAN.",
+    )
+    parser.add_argument(
+        "--bootstrap_samples",
+        type=int,
+        default=500,
+        help="Bootstrap samples for the per-cell AP confidence interval; 0 disables it.",
+    )
+    parser.add_argument(
+        "--no-cache-features",
+        action="store_false",
+        dest="cache_features",
+        help="Disable one-pass feature caching for adaptive fusion.",
+    )
+    parser.set_defaults(cache_features=True)
 
     args = parser.parse_args()
 

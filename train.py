@@ -30,6 +30,7 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 =============================================================================
 """
 
+import hashlib
 import importlib
 import os
 import time
@@ -78,6 +79,12 @@ class Trainer:
         feat_interp: bool = False,
         feat_interp_alpha: float = 0.2,
         feat_interp_ratio: float = 0.5,
+        fusion_head: str = "v1",
+        npr: bool = False,
+        artifact_views: int = 1,
+        cache_features: bool = True,
+        branch_dropout: float = 0.15,
+        downscale_prob: float = 0.0,
     ):
 
         self.device = device
@@ -89,6 +96,17 @@ class Trainer:
         self.batch_size = batch_size
         self.feat_interp = feat_interp
         self.feat_interp_alpha = feat_interp_alpha
+        self.fusion_head = fusion_head
+        self.npr = npr
+        self.artifact_views = artifact_views
+        self.cache_features = cache_features
+        self.branch_dropout = branch_dropout
+        self.downscale_prob = downscale_prob
+        if fusion_head in {"v3", "v3_npr"} or npr:
+            self.fusion_head = "v3"
+            self.npr = True
+        elif fusion_head not in {"v1", "v2"}:
+            raise ValueError(f"Unknown fusion head: {fusion_head}")
         # Ánh xạ chuẩn xác tên package Python và tên thư mục dữ liệu/ckpt
         if train_dataset in ["sd_v1_4", "sd-v1_4"]:
             pkg_name = "sd_v1_4"  # Tên thư mục code trong detectors/
@@ -99,6 +117,10 @@ class Trainer:
 
         self.pkg_name = pkg_name
         self.dir_name = dir_name
+        if pkg_name != "sd_v1_4" and (
+            self.fusion_head != "v1" or self.npr
+        ):
+            raise ValueError("Adaptive fusion v2/v3 is currently supported for sd-v1_4 only")
 
         # Nạp động module tương ứng với bộ dataset ('progan' hoặc 'sd_v1_4')
         detector_module = importlib.import_module(f"detectors.{pkg_name}")
@@ -107,10 +129,13 @@ class Trainer:
         if self.mode == "branch":
             ArtifactDetector = detector_module.ArtifactDetector
             SemanticDetector = detector_module.SemanticDetector
+            NPRDetector = getattr(detector_module, "NPRDetector", None)
             if self.branch == "artifact":
                 self.model = ArtifactDetector()
             elif self.branch == "semantic":
-                self.model = SemanticDetector()
+                self.model = SemanticDetector(downscale_prob=self.downscale_prob)
+            elif self.branch == "npr" and NPRDetector is not None:
+                self.model = NPRDetector()
             else:
                 raise ValueError(f"Unknown detector: {self.branch}")
         elif self.mode == "fusion":
@@ -128,10 +153,37 @@ class Trainer:
                 raise ValueError(
                     f"Semantic or Artifact weights path does not exist for fusion mode. Looked in: {semantic_weights_path}, {artifact_weights_path}"
                 )
+            npr_weights_path = os.path.join(c_dir, "npr", "best_model.pth")
+            if self.fusion_head in {"v3", "v3_npr"} and not os.path.exists(
+                npr_weights_path
+            ):
+                raise ValueError(
+                    f"NPR weights path does not exist for v3 fusion: {npr_weights_path}"
+                )
+            weight_paths = [semantic_weights_path, artifact_weights_path]
+            if self.npr:
+                weight_paths.append(npr_weights_path)
+            signature = "|".join(
+                f"{path}:{os.stat(path).st_mtime_ns}:{os.stat(path).st_size}"
+                for path in weight_paths
+            )
+            signature += (
+                f"|fusion={self.fusion_head}"
+                f"|downscale={self.downscale_prob}"
+                f"|views={self.artifact_views}"
+            )
+            self.cache_key = hashlib.sha256(
+                signature.encode("utf-8")
+            ).hexdigest()[:12]
             CoSpyFusionDetector = detector_module.CoSpyFusionDetector
             self.model = CoSpyFusionDetector(
                 semantic_weights_path=semantic_weights_path,
                 artifact_weights_path=artifact_weights_path,
+                npr_weights_path=npr_weights_path if self.npr else None,
+                fusion_version="v3" if self.npr else self.fusion_head,
+                branch_dropout=self.branch_dropout,
+                artifact_views=self.artifact_views,
+                semantic_downscale_prob=self.downscale_prob,
             )
             self.weight_init = 0.5 if dir_name == "sd-v1_4" else 0.0
             self.bias_floor = 2.0 if dir_name == "sd-v1_4" else 0.0
@@ -144,25 +196,29 @@ class Trainer:
         self.model.to(self.device)
 
         # Khởi tạo trọng số ngẫu nhiên theo phân phối chuẩn cho lớp phân loại fc
-        torch.nn.init.normal_(self.model.fc.weight.data, 0.0, 0.02)
+        if self.mode != "fusion" or self.fusion_head == "v1":
+            torch.nn.init.normal_(self.model.fc.weight.data, 0.0, 0.02)
         if self.mode == "end2end":
             torch.nn.init.normal_(self.model.sem.fc.weight.data, 0.0, 0.02)
             torch.nn.init.normal_(self.model.art.fc.weight.data, 0.0, 0.02)
 
-        if self.mode == "fusion":
+        if self.mode == "fusion" and self.fusion_head == "v1":
             with torch.no_grad():
                 self.model.fc.weight.data += self.weight_init
                 self.model.fc.bias.data.fill_(self.bias_floor)
 
         # Cấu hình bộ tối ưu hóa Optimizer (AdamW)
         _beta1 = 0.9
-        _weight_decay = 0.0
+        _weight_decay = 1e-4 if self.mode == "fusion" else 0.0
         # Chỉ truyền các tham số cần tính gradient (requires_grad=True) vào optimizer
         params = [p for p in self.model.parameters() if p.requires_grad]
         logger.info(f"Trainable parameters: {len(params)}")
 
         # Learning rate: 1e-4 cho train nhánh thông thường, 1e-1 cho tinh chỉnh tầng fusion
-        self._lr = 1e-4 if self.mode != "fusion" else 1e-1
+        if self.mode == "fusion":
+            self._lr = 1e-3 if self.fusion_head != "v1" else 1e-1
+        else:
+            self._lr = 1e-4
         self._lr_min = self._lr / self.epochs
         self.optimizer = torch.optim.AdamW(
             params, lr=self._lr, betas=(_beta1, 0.999), weight_decay=_weight_decay
@@ -174,7 +230,7 @@ class Trainer:
         self.lr_scheduler = None
 
         # Cấu hình cập nhật Learning Rate theo từng batch hoặc theo từng epoch
-        if self.train_dataset == "sd-v1_4":
+        if self.train_dataset in ["sd_v1_4", "sd-v1_4"]:
             self.lr_step_per_batch = True
         elif self.train_dataset == "progan":
             self.lr_step_per_batch = False
@@ -234,28 +290,54 @@ class Trainer:
         self.optimizer.zero_grad()
 
         if self.mode == "fusion":
-            sem_t, art_t, labels = batch_data
-            sem_t = sem_t.to(self.device, non_blocking=True)
-            art_t = art_t.to(self.device, non_blocking=True)
-            labels = labels.to(self.device, non_blocking=True)
-            pred_sem = self.model.sem(sem_t)
-            pred_art = self.model.art(art_t)
-
-
-            feat = torch.cat([pred_sem, pred_art], dim=1)
-
-            feat = torch.nn.functional.dropout(
-                feat,
-                p = 0.15,
-                training=self.model.training,
-            )
-
-            outputs = self.model.fc(feat)
-
-
-            loss = self.criterion(outputs, labels.unsqueeze(1).float())
-            b = self.model.fc.bias[0]
-            loss = loss + torch.nn.functional.relu(self.bias_floor - b)
+            if self.fusion_head == "v1":
+                sem_t, art_t, labels = batch_data
+                sem_t = sem_t.to(self.device, non_blocking=True)
+                art_t = art_t.to(self.device, non_blocking=True)
+                labels = labels.to(self.device, non_blocking=True)
+                pred_sem = self.model.sem(sem_t)
+                pred_art = self.model.art(art_t)
+                feat = torch.cat([pred_sem, pred_art], dim=1)
+                if self.model.training and self.branch_dropout > 0:
+                    drop = torch.rand(feat.shape[0], device=feat.device) < (
+                        self.branch_dropout
+                    )
+                    stream = torch.randint(
+                        0, 2, (feat.shape[0],), device=feat.device
+                    )
+                    keep = torch.ones_like(feat)
+                    for index in range(2):
+                        keep[:, index] = torch.logical_not(
+                            torch.logical_and(drop, stream == index)
+                        ).to(feat.dtype)
+                    feat = feat * keep
+                outputs = self.model.fc(feat)
+                loss = self.criterion(outputs, labels.unsqueeze(1).float())
+                b = self.model.fc.bias[0]
+                loss = loss + torch.nn.functional.relu(self.bias_floor - b)
+            else:
+                if len(batch_data) == 4:
+                    sem_t, art_t, npr_t, labels = batch_data
+                    npr_t = npr_t.to(self.device, non_blocking=True)
+                else:
+                    sem_t, art_t, labels = batch_data
+                    npr_t = None
+                sem_t = sem_t.to(self.device, non_blocking=True)
+                art_t = art_t.to(self.device, non_blocking=True)
+                labels = labels.to(self.device, non_blocking=True)
+                if sem_t.ndim == 4 or art_t.ndim >= 4:
+                    sem_t, art_t, extracted_npr = self.model.extract_features(
+                        sem_t, art_t, include_npr=npr_t is None
+                    )
+                    if npr_t is not None:
+                        with torch.no_grad():
+                            npr_t = self.model.npr.artifact_encoder(npr_t)
+                    else:
+                        npr_t = extracted_npr
+                outputs = self.model.forward_features(
+                    sem_t, art_t, npr_t
+                )
+                loss = self.criterion(outputs, labels.unsqueeze(1).float())
         else:
             inputs, labels = batch_data
             inputs, labels = inputs.to(self.device), labels.to(self.device)
@@ -344,9 +426,11 @@ class Trainer:
         # Xác định thư mục lưu checkpoint
         if self.mode == "branch":
             subdir = self.branch
+        elif self.mode == "fusion" and self.fusion_head != "v1":
+            subdir = f"fusion_{self.fusion_head}"
         else:
             subdir = self.mode
-        model_dir = os.path.join(self.ckpt, self.train_dataset, subdir)
+        model_dir = os.path.join(self.ckpt, self.dir_name, subdir)
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
 
@@ -363,20 +447,65 @@ class Trainer:
 
         # Nạp dữ liệu huấn luyện và kiểm thử (DataLoader)
         if self.mode == "fusion":
+            train_split = "val" if self.fusion_head == "v1" else "train"
             base_train = TrainDataset(
-                train_dataset=self.train_dataset, split="val", transform=None
+                train_dataset=self.train_dataset,
+                split=train_split,
+                transform=None,
             )
             base_val = TrainDataset(
                 train_dataset=self.train_dataset, split="val", transform=None
             )
-            train_dataset = FusionTrainDataset(
+            overlap = set(base_train.total_list).intersection(base_val.total_list)
+            if overlap:
+                raise ValueError(
+                    f"Train/validation leakage detected: {len(overlap)} shared paths"
+                )
+            raw_train_dataset = FusionTrainDataset(
                 base_train,
                 self.model.sem.train_transform,
                 self.model.art.train_transform,
+                npr_transform=(
+                    self.model.npr.train_transform
+                    if self.fusion_head == "v3"
+                    else None
+                ),
             )
-            val_dataset = FusionTrainDataset(
-                base_val, self.model.sem.val_transform, self.model.art.val_transform
+            raw_val_dataset = FusionTrainDataset(
+                base_val,
+                self.model.sem.val_transform,
+                self.model.art.val_transform,
+                npr_transform=(
+                    self.model.npr.val_transform
+                    if self.fusion_head == "v3"
+                    else None
+                ),
             )
+            if self.fusion_head == "v1" or not self.cache_features:
+                train_dataset = raw_train_dataset
+                val_dataset = raw_val_dataset
+            else:
+                from detectors.sd_v1_4.feature_cache import (
+                    build_fusion_feature_cache,
+                )
+
+                cache_dir = os.path.join(model_dir, "features", self.cache_key)
+                train_dataset = build_fusion_feature_cache(
+                    self.model,
+                    raw_train_dataset,
+                    cache_dir,
+                    "train",
+                    self.device,
+                    batch_size=self.batch_size,
+                )
+                val_dataset = build_fusion_feature_cache(
+                    self.model,
+                    raw_val_dataset,
+                    cache_dir,
+                    "val",
+                    self.device,
+                    batch_size=self.batch_size,
+                )
         else:
             train_dataset = TrainDataset(
                 train_dataset=self.train_dataset,
@@ -413,7 +542,9 @@ class Trainer:
         self._build_scheduler(steps_per_epoch=len(train_loader))
 
         # Bắt đầu vòng lặp huấn luyện qua các Epochs
-        best_acc = 0
+        best_acc = 0.0
+        best_ap = -float("inf")
+        epochs_without_improvement = 0
         for epoch in range(self.epochs):
             self.model.train()
             time_start = time.time()
@@ -435,13 +566,36 @@ class Trainer:
             with torch.no_grad():
                 for batch in val_loader:
                     if self.mode == "fusion":
-                        sem_t, art_t, labels = batch
+                        if len(batch) == 4:
+                            sem_t, art_t, npr_t, labels = batch
+                            npr_t = npr_t.to(self.device, non_blocking=True)
+                        else:
+                            sem_t, art_t, labels = batch
+                            npr_t = None
                         sem_t = sem_t.to(self.device, non_blocking=True)
                         art_t = art_t.to(self.device, non_blocking=True)
-                        feat = torch.cat(
-                            [self.model.sem(sem_t), self.model.art(art_t)], dim=1
-                        )
-                        logits = self.model.fc(feat)
+                        if self.fusion_head == "v1":
+                            feat = torch.cat(
+                                [self.model.sem(sem_t), self.model.art(art_t)],
+                                dim=1,
+                            )
+                            logits = self.model.fc(feat)
+                        else:
+                            if sem_t.ndim == 4 or art_t.ndim >= 4:
+                                sem_t, art_t, extracted_npr = (
+                                    self.model.extract_features(
+                                        sem_t,
+                                        art_t,
+                                        include_npr=npr_t is None,
+                                    )
+                                )
+                                if npr_t is not None:
+                                    npr_t = self.model.npr.artifact_encoder(npr_t)
+                                else:
+                                    npr_t = extracted_npr
+                            logits = self.model.forward_features(
+                                sem_t, art_t, npr_t
+                            )
                         y_pred.extend(logits.sigmoid().flatten().cpu().tolist())
                         y_true.extend(labels.tolist())
                     else:
@@ -460,15 +614,30 @@ class Trainer:
                 self._step_lr_per_epoch(epoch)
 
             # Lưu lại model nếu đạt độ chính xác (Accuracy) cao nhất từ trước đến nay
-            if accuracy >= best_acc:
-                best_acc = accuracy
+            use_ap_checkpoint = self.mode == "fusion" and self.fusion_head != "v1"
+            improved = ap > best_ap if use_ap_checkpoint else accuracy >= best_acc
+            if use_ap_checkpoint:
+                best_ap = max(best_ap, ap)
+            else:
+                best_acc = max(best_acc, accuracy)
+            if improved:
+                epochs_without_improvement = 0
                 self.model.save_weights(f"{model_dir}/best_model.pth")
-                logger.info(f"Best model saved with accuracy {best_acc * 100:.2f}%")
+                metric_name = "AP" if use_ap_checkpoint else "accuracy"
+                metric_value = ap if use_ap_checkpoint else accuracy
+                logger.info(
+                    f"Best model saved with {metric_name} {metric_value * 100:.2f}%"
+                )
+            else:
+                epochs_without_improvement += 1
 
             # Lưu checkpoint định kỳ mỗi 5 epoch
             if epoch % 5 == 0:
                 self.model.save_weights(f"{model_dir}/epoch_{epoch}.pth")
                 logger.info(f"Model saved at epoch {epoch}")
+            if use_ap_checkpoint and epochs_without_improvement >= 5:
+                logger.info("Early stopping after 5 epochs without AP improvement")
+                break
 
         # Lưu mô hình cuối cùng sau khi hoàn tất tất cả epoch
         self.model.save_weights(f"{model_dir}/final_model.pth")

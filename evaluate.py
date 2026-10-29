@@ -34,7 +34,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from dataSets import *
-from utils import evaluate
+from utils import bootstrap_ap_ci, evaluate
 
 warnings.filterwarnings("ignore")
 
@@ -67,6 +67,12 @@ class Detector:
         pretrain: bool = False,
         ckpt: str = "ckpt",
         batch_size: int = 32,
+        fusion_head: str = "v1",
+        npr: bool = False,
+        artifact_views: int = 1,
+        branch_dropout: float = 0.15,
+        benchmark: str = "auto",
+        bootstrap_samples: int = 500,
     ):
 
         # Cấu hình thiết bị và tham số
@@ -77,6 +83,19 @@ class Detector:
         self.pretrain = pretrain
         self.ckpt = ckpt
         self.batch_size = batch_size
+        self.fusion_head = fusion_head
+        self.npr = npr
+        self.artifact_views = artifact_views
+        self.branch_dropout = branch_dropout
+        self.benchmark = benchmark
+        self.bootstrap_samples = bootstrap_samples
+        if benchmark not in {"auto", "cospy", "aigcdetect"}:
+            raise ValueError(f"Unknown benchmark: {benchmark}")
+        if fusion_head in {"v3", "v3_npr"} or npr:
+            self.fusion_head = "v3"
+            self.npr = True
+        elif fusion_head not in {"v1", "v2"}:
+            raise ValueError(f"Unknown fusion head: {fusion_head}")
 
         # Ánh xạ chuẩn xác tên package Python và tên thư mục dữ liệu/weights
         if train_dataset in ["sd_v1_4", "sd-v1_4"]:
@@ -88,6 +107,15 @@ class Detector:
 
         self.pkg_name = pkg_name
         self.dir_name = dir_name
+        if pkg_name != "sd_v1_4" and (
+            self.fusion_head != "v1" or self.npr
+        ):
+            raise ValueError("Adaptive fusion v2/v3 is currently supported for sd-v1_4 only")
+        if pretrain and self.mode == "fusion" and self.fusion_head != "v1":
+            raise ValueError(
+                "Released pretrained fusion weights use v1; train a v2/v3 "
+                "checkpoint before adaptive evaluation"
+            )
 
         # Nạp động module kiến trúc mô hình (progan hoặc sd_v1_4)
         detector_module = importlib.import_module(f"detectors.{pkg_name}")
@@ -98,6 +126,8 @@ class Detector:
                 DetectorClass = detector_module.ArtifactDetector
             elif self.branch == "semantic":
                 DetectorClass = detector_module.SemanticDetector
+            elif self.branch == "npr":
+                DetectorClass = detector_module.NPRDetector
             else:
                 raise ValueError(f"Unknown branch: {self.branch}")
             self.model = DetectorClass()
@@ -114,20 +144,30 @@ class Detector:
                 )
             self.model.load_weights(weights_path)
         elif self.mode == "fusion":
+            fusion_subdir = (
+                "fusion" if self.fusion_head == "v1" else f"fusion_{self.fusion_head}"
+            )
+            c_dir = os.path.join(self.ckpt, dir_name)
             if pretrain:
                 p_dir = f"pretrained/{dir_name}"
                 semantic_weights_path = os.path.join(p_dir, "semantic_weights.pth")
                 artifact_weights_path = os.path.join(p_dir, "artifact_weights.pth")
                 fusion_weights_path = os.path.join(p_dir, "fusion_weights.pth")
             else:
-                c_dir = os.path.join(self.ckpt, dir_name)
                 semantic_weights_path = os.path.join(
                     c_dir, "semantic", "best_model.pth"
                 )
                 artifact_weights_path = os.path.join(
                     c_dir, "artifact", "best_model.pth"
                 )
-                fusion_weights_path = os.path.join(c_dir, "fusion", "best_model.pth")
+                fusion_weights_path = os.path.join(
+                    c_dir, fusion_subdir, "best_model.pth"
+                )
+            npr_weights_path = (
+                os.path.join(p_dir, "npr_weights.pth")
+                if pretrain
+                else os.path.join(c_dir, "npr", "best_model.pth")
+            )
             if (
                 not os.path.exists(semantic_weights_path)
                 or not os.path.exists(artifact_weights_path)
@@ -136,10 +176,18 @@ class Detector:
                 raise ValueError(
                     f"Semantic, Artifact or Fusion weights path does not exist for fusion mode. Looked in: {semantic_weights_path}, {artifact_weights_path}, {fusion_weights_path}"
                 )
+            if self.npr and not os.path.exists(npr_weights_path):
+                raise ValueError(
+                    f"NPR weights path does not exist for v3 fusion: {npr_weights_path}"
+                )
             CoSpyFusionDetector = detector_module.CoSpyFusionDetector
             self.model = CoSpyFusionDetector(
                 semantic_weights_path=semantic_weights_path,
                 artifact_weights_path=artifact_weights_path,
+                npr_weights_path=npr_weights_path if self.npr else None,
+                fusion_version="v3" if self.npr else self.fusion_head,
+                branch_dropout=self.branch_dropout,
+                artifact_views=self.artifact_views,
             )
             self.model.load_weights(fusion_weights_path)
         elif self.mode == "end2end":
@@ -172,7 +220,9 @@ class Detector:
     # -------------------------------------------------------------------------
     def evaluate_benchmark(self):
         # Chọn bộ benchmark tương ứng với dataset
-        if self.dir_name == "progan":
+        if self.benchmark == "aigcdetect" or (
+            self.benchmark == "auto" and self.dir_name == "progan"
+        ):
             benchmark_name = "AIGCDetectionBenchMark"
             TestDataset = AIGCDetectTestDataset
             eval_dataset_list = AIGCDetectionBenchMark_DATASET_LIST
@@ -186,7 +236,12 @@ class Detector:
             raise ValueError(f"Unknown train dataset: {self.train_dataset}")
 
         # Tạo thư mục lưu kết quả đánh giá
-        subdir = self.branch if self.mode == "branch" else self.mode
+        if self.mode == "branch":
+            subdir = self.branch
+        elif self.mode == "fusion" and self.fusion_head != "v1":
+            subdir = f"fusion_{self.fusion_head}"
+        else:
+            subdir = self.mode
         if self.pretrain:
             save_dir = os.path.join(
                 self.ckpt, self.dir_name, subdir, f"pretrain_{benchmark_name}"
@@ -222,8 +277,18 @@ class Detector:
                 test_dataset = TestDataset(
                     dataset=dataset_name,
                     model=model_name,
-                    transform=self.model.test_transform,
+                    transform=(
+                        None
+                        if self.mode == "fusion" and self.fusion_head != "v1"
+                        else self.model.test_transform
+                    ),
                 )
+                if self.mode == "fusion" and self.fusion_head != "v1":
+                    test_dataset = FusionEvalDataset(
+                        test_dataset,
+                        self.model.sem.test_transform,
+                        self.model.artifact_view_transform(self.artifact_views),
+                    )
                 test_loader = torch.utils.data.DataLoader(
                     test_dataset,
                     batch_size=self.batch_size,
@@ -233,14 +298,27 @@ class Detector:
                 )
 
                 y_pred, y_true = [], []
-                for images, labels in tqdm(
+                for batch in tqdm(
                     test_loader,
                     desc=f"Evaluating {benchmark_name} - {dataset_name} - {model_name}",
                 ):
-                    y_pred.extend(self.model.predict(images))
+                    if self.mode == "fusion" and self.fusion_head != "v1":
+                        sem_images, artifact_views, labels = batch
+                        y_pred.extend(
+                            self.model.predict_views(sem_images, artifact_views)
+                        )
+                    else:
+                        images, labels = batch
+                        y_pred.extend(self.model.predict(images))
                     y_true.extend(labels.tolist())
 
                 ap, accuracy = evaluate(y_pred, y_true)
+                ap_ci = bootstrap_ap_ci(
+                    y_pred,
+                    y_true,
+                    n_samples=self.bootstrap_samples,
+                    seed=1024,
+                )
                 logger.info(
                     f"Evaluate on {benchmark_name} - {dataset_name} - {model_name} | Size {len(y_true)} | AP {ap * 100:.2f}% | Accuracy {accuracy * 100:.2f}%"
                 )
@@ -248,6 +326,7 @@ class Detector:
                 result_all[dataset_name][model_name] = {
                     "size": len(y_true),
                     "AP": ap,
+                    "AP_95CI": ap_ci,
                     "Accuracy": accuracy,
                 }
                 output_all[dataset_name][model_name] = {
@@ -327,6 +406,26 @@ class Detector:
             try:
                 # Đọc ảnh và chuyển sang hệ màu RGB
                 image = Image.open(image_filepath).convert("RGB")
+                if self.mode == "fusion" and self.fusion_head != "v1":
+                    with torch.no_grad():
+                        sem_image = self.model.sem.test_transform(image)
+                        sem_image = sem_image.unsqueeze(0).to(self.device)
+                        art_views = self.model.artifact_view_transform(
+                            self.artifact_views
+                        )(image)
+                        art_views = art_views.unsqueeze(0).to(self.device)
+                        prediction = self.model.predict_views(
+                            sem_image, art_views
+                        )[0]
+                    tag = "AI-Generated" if prediction > 0.5 else "Real"
+                    print("\n" + "-" * 50)
+                    print(f"File: {os.path.basename(image_filepath)}")
+                    print(
+                        f"CO-SPY {self.fusion_head.upper()} Prediction: "
+                        f"{prediction:.3f} - {tag}"
+                    )
+                    print("-" * 50 + "\n")
+                    continue
                 image = self.model.test_transform(image)
                 image = image.unsqueeze(0)  # Thêm chiều batch size (1, C, H, W)
                 image = image.to(self.device)
@@ -334,6 +433,7 @@ class Detector:
                 # Nếu đang ở chế độ Fusion, phân tích sâu từng nhánh
                 if (
                     self.mode == "fusion"
+                    and self.fusion_head == "v1"
                     and hasattr(self.model, "sem")
                     and hasattr(self.model, "art")
                 ):
