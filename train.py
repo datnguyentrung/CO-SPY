@@ -718,6 +718,11 @@ class Trainer:
             logger.info(
                 f"Train size {len(train_dataset)} | Val size {len(val_dataset)}"
             )
+            print(
+                f"[TRAIN] Data ready | Train size: {len(train_dataset)} | "
+                f"Val size: {len(val_dataset)}",
+                flush=True,
+            )
             if (
                 self.feat_interp
                 and self.mode == "branch"
@@ -926,13 +931,17 @@ class Trainer:
 
                         if (step_id + 1) % self.log_interval_batches == 0:
                             time_end = time.time()
-                            logger.info(
-                                f"Epoch {epoch} | Batch {step_id + 1}/"
-                                f"{len(train_loader)} | Loss {eval_loss:.4f} | "
-                                f"AP {ap * 100:.2f}% | Accuracy "
-                                f"{accuracy * 100:.2f}% | "
+                            msg = (
+                                f"Epoch {epoch}/{self.epochs - 1} | "
+                                f"Batch {step_id + 1}/{len(train_loader)} | "
+                                f"Loss {eval_loss:.4f} | "
+                                f"AP {ap * 100:.2f}% | "
+                                f"Accuracy {accuracy * 100:.2f}% | "
+                                f"LR {self.optimizer.param_groups[0]['lr']:.2e} | "
                                 f"Time {time_end - time_start:.2f}s"
                             )
+                            logger.info(msg)
+                            print(f"[TRAIN] {msg}", flush=True)
                             time_start = time.time()
 
                         should_stop = controller.should_stop()
@@ -1054,11 +1063,14 @@ class Trainer:
                     ap, accuracy = evaluate(y_pred, y_true)
                     eval_type = "Test" if self.mode == "branch" else "Total"
                     cur_lr = self.optimizer.param_groups[0]["lr"]
-                    logger.info(
-                        f"Epoch {epoch} | {eval_type} AP {ap * 100:.2f}% | "
+                    val_msg = (
+                        f"Epoch {epoch}/{self.epochs - 1} | "
+                        f"{eval_type} AP {ap * 100:.2f}% | "
                         f"{eval_type} Accuracy {accuracy * 100:.2f}% | "
                         f"LR {cur_lr:.2e}"
                     )
+                    logger.info(val_msg)
+                    print(f"[VAL]   {val_msg}", flush=True)
 
                     if not self.lr_step_per_batch:
                         self._step_lr_per_epoch(epoch)
@@ -1093,6 +1105,11 @@ class Trainer:
                             f"{metric_value * 100:.2f}% | {best_size_mb:.2f} MiB | "
                             f"{time.monotonic() - started_at:.2f}s"
                         )
+                        print(
+                            f"[CKPT]  Best checkpoint saved with {metric_name} "
+                            f"{metric_value * 100:.2f}%",
+                            flush=True,
+                        )
                     else:
                         epochs_without_improvement += 1
 
@@ -1125,6 +1142,10 @@ class Trainer:
                         logger.info(
                             "Early stopping after 5 epochs without AP improvement"
                         )
+                        print(
+                            "[TRAIN] Early stopping after 5 epochs without AP improvement.",
+                            flush=True,
+                        )
                         early_stopped = True
                         break
                     if controller.should_stop():
@@ -1143,6 +1164,10 @@ class Trainer:
                     "[TRAINING] Interrupted at a safe batch boundary. "
                     "Run the same command to resume."
                 )
+                print(
+                    "[TRAIN] Stopped safely; rerun the same command to resume.",
+                    flush=True,
+                )
             elif early_stopped or (
                 last_completed_epoch is not None
                 and last_completed_epoch + 1 >= self.epochs
@@ -1153,6 +1178,7 @@ class Trainer:
                     last_checkpoint=manager.state.get("last_checkpoint"),
                 )
                 logger.info("[TRAINING] Training completed.")
+                print("[TRAIN] Training completed.", flush=True)
             elif resume.resumed and resume_epoch >= self.epochs:
                 manager.mark_status(STATUS_COMPLETED, current_epoch=self.epochs)
                 logger.info("[TRAINING] Checkpoint already contains all epochs.")
