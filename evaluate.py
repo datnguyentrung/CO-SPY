@@ -33,7 +33,16 @@ from loguru import logger
 from PIL import Image
 from tqdm import tqdm
 
-from dataSets import *
+from checkpoint_manager import find_best_weights
+from dataSets import (
+    AIGCDetectionBenchMark_DATASET_LIST,
+    AIGCDetectionBenchMark_MODEL_LIST,
+    AIGCDetectTestDataset,
+    CoSpyBench_DATASET_LIST,
+    CoSpyBench_MODEL_LIST,
+    CoSpyBenchTestDataset,
+    FusionEvalDataset,
+)
 from utils import bootstrap_ap_ci, evaluate
 
 warnings.filterwarnings("ignore")
@@ -135,14 +144,14 @@ class Detector:
             if pretrain:
                 weights_path = f"pretrained/{dir_name}/{self.branch}_weights.pth"
             else:
-                weights_path = os.path.join(
-                    self.ckpt, dir_name, self.branch, "best_model.pth"
+                weights_path = find_best_weights(
+                    os.path.join(self.ckpt, dir_name, self.branch)
                 )
-            if not os.path.exists(weights_path):
+            if weights_path is None or not os.path.exists(weights_path):
                 raise ValueError(
                     f"{self.branch} weights path does not exist: {weights_path}"
                 )
-            self.model.load_weights(weights_path)
+            self.model.load_weights(str(weights_path))
         elif self.mode == "fusion":
             fusion_subdir = (
                 "fusion" if self.fusion_head == "v1" else f"fusion_{self.fusion_head}"
@@ -154,51 +163,58 @@ class Detector:
                 artifact_weights_path = os.path.join(p_dir, "artifact_weights.pth")
                 fusion_weights_path = os.path.join(p_dir, "fusion_weights.pth")
             else:
-                semantic_weights_path = os.path.join(
-                    c_dir, "semantic", "best_model.pth"
+                semantic_weights_path = find_best_weights(
+                    os.path.join(c_dir, "semantic")
                 )
-                artifact_weights_path = os.path.join(
-                    c_dir, "artifact", "best_model.pth"
+                artifact_weights_path = find_best_weights(
+                    os.path.join(c_dir, "artifact")
                 )
-                fusion_weights_path = os.path.join(
-                    c_dir, fusion_subdir, "best_model.pth"
+                fusion_weights_path = find_best_weights(
+                    os.path.join(c_dir, fusion_subdir)
                 )
             npr_weights_path = (
                 os.path.join(p_dir, "npr_weights.pth")
                 if pretrain
-                else os.path.join(c_dir, "npr", "best_model.pth")
+                else find_best_weights(os.path.join(c_dir, "npr"))
             )
             if (
-                not os.path.exists(semantic_weights_path)
-                or not os.path.exists(artifact_weights_path)
-                or not os.path.exists(fusion_weights_path)
+                semantic_weights_path is None
+                or artifact_weights_path is None
+                or fusion_weights_path is None
+                or (
+                    not os.path.exists(semantic_weights_path)
+                    or not os.path.exists(artifact_weights_path)
+                    or not os.path.exists(fusion_weights_path)
+                )
             ):
                 raise ValueError(
                     f"Semantic, Artifact or Fusion weights path does not exist for fusion mode. Looked in: {semantic_weights_path}, {artifact_weights_path}, {fusion_weights_path}"
                 )
-            if self.npr and not os.path.exists(npr_weights_path):
+            if self.npr and (
+                npr_weights_path is None or not os.path.exists(npr_weights_path)
+            ):
                 raise ValueError(
                     f"NPR weights path does not exist for v3 fusion: {npr_weights_path}"
                 )
             CoSpyFusionDetector = detector_module.CoSpyFusionDetector
             self.model = CoSpyFusionDetector(
-                semantic_weights_path=semantic_weights_path,
-                artifact_weights_path=artifact_weights_path,
-                npr_weights_path=npr_weights_path if self.npr else None,
+                semantic_weights_path=str(semantic_weights_path),
+                artifact_weights_path=str(artifact_weights_path),
+                npr_weights_path=str(npr_weights_path) if self.npr else None,
                 fusion_version="v3" if self.npr else self.fusion_head,
                 branch_dropout=self.branch_dropout,
                 artifact_views=self.artifact_views,
             )
-            self.model.load_weights(fusion_weights_path)
+            self.model.load_weights(str(fusion_weights_path))
         elif self.mode == "end2end":
             End2EndDetector = detector_module.End2EndDetector
             self.model = End2EndDetector()
-            end2end_weights_path = os.path.join(
-                self.ckpt, self.train_dataset, "end2end", "best_model.pth"
+            end2end_weights_path = find_best_weights(
+                os.path.join(self.ckpt, self.train_dataset, "end2end")
             )
-            if not os.path.exists(end2end_weights_path):
+            if end2end_weights_path is None or not os.path.exists(end2end_weights_path):
                 raise ValueError("End2End weights path does not exist for end2end mode")
-            self.model.load_weights(end2end_weights_path)
+            self.model.load_weights(str(end2end_weights_path))
         else:
             raise ValueError(f"Unknown mode: {self.mode}")
 
@@ -359,6 +375,8 @@ class Detector:
         logger.info(
             f"Average Performance on {benchmark_name} | AP {avg_ap * 100:.2f}% | Accuracy {avg_accuracy * 100:.2f}%"
         )
+        logger.complete()
+        logger.remove(logger_id)
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
@@ -504,5 +522,5 @@ class Detector:
                     print(f"Co-Spy Prediction: {prediction:.3f} - {tag}")
                     print("-" * 50 + "\n")
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - keep interactive scan alive
                 print(f"[LỖI XỬ LÝ ẢNH]: {e}\n")

@@ -69,6 +69,18 @@ def main(args):
             cache_features=args.cache_features,
             branch_dropout=args.branch_dropout,
             downscale_prob=args.downscale_prob,
+            seed=args.seed,
+            resume_mode=args.resume_mode,
+            resume_path=args.resume_path,
+            experiment_id=args.experiment_id,
+            checkpoint_dir=args.checkpoint_dir,
+            checkpoint_input_roots=args.checkpoint_input_root,
+            checkpoint_interval_minutes=args.checkpoint_interval_minutes,
+            recovery_retention=args.recovery_retention,
+            session_timeout_minutes=args.session_timeout_minutes,
+            pre_timeout_minutes=args.pre_timeout_minutes,
+            num_workers=args.num_workers,
+            log_interval_batches=args.log_interval_batches,
         )
         # Bắt đầu quá trình huấn luyện
         trainer.train()
@@ -112,7 +124,7 @@ def main(args):
             branch_dropout=args.branch_dropout,
         )
         # Nhận đường dẫn ảnh và trả về kết quả
-        score = detector.scan()
+        detector.scan()
     else:
         raise ValueError(f"Unknown phase: {args.phase}")
 
@@ -220,6 +232,91 @@ if __name__ == "__main__":
         type=int,
         default=500,
         help="Bootstrap samples for the per-cell AP confidence interval; 0 disables it.",
+    )
+    parser.add_argument(
+        "--resume-mode",
+        choices=["auto", "full", "weights", "new"],
+        default="auto",
+        help=(
+            "auto resumes a compatible full checkpoint; weights starts a new run "
+            "from checkpoint weights; new ignores checkpoints."
+        ),
+    )
+    parser.add_argument(
+        "--no-resume",
+        action="store_const",
+        const="new",
+        dest="resume_mode",
+        help="Start a new run and ignore existing checkpoints.",
+    )
+    parser.add_argument(
+        "--resume-path",
+        type=str,
+        default=None,
+        help="Explicit checkpoint file to restore instead of automatic discovery.",
+    )
+    parser.add_argument(
+        "--experiment-id",
+        type=str,
+        default=None,
+        help="Explicit experiment identifier used for checkpoint compatibility.",
+    )
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=str,
+        default=None,
+        help=(
+            "Exact checkpoint output directory. Defaults to the existing "
+            "ckpt/<dataset>/<mode> directory."
+        ),
+    )
+    parser.add_argument(
+        "--checkpoint-input-root",
+        action="append",
+        default=[],
+        help=(
+            "Additional directory to scan for checkpoints. Repeat for multiple "
+            "roots; Kaggle /kaggle/input and Colab Drive are detected automatically."
+        ),
+    )
+    parser.add_argument(
+        "--checkpoint-interval-minutes",
+        type=float,
+        default=15.0,
+        help="Minutes between recovery checkpoints; 0 disables time-based saves.",
+    )
+    parser.add_argument(
+        "--recovery-retention",
+        type=int,
+        default=1,
+        help=(
+            "Number of recovery states kept, including checkpoint_recovery.pth. "
+            "The default of 1 keeps no extra recovery backups."
+        ),
+    )
+    parser.add_argument(
+        "--session-timeout-minutes",
+        type=float,
+        default=12 * 60,
+        help="Stop at a safe batch boundary before the runtime limit; 0 disables.",
+    )
+    parser.add_argument(
+        "--pre-timeout-minutes",
+        type=float,
+        default=15.0,
+        help="Grace period reserved before the session timeout.",
+    )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=4,
+        help="DataLoader worker count.",
+    )
+    parser.add_argument(
+        "--log-interval-batches",
+        type=int,
+        default=100,
+        help="Write batch progress to the log every N batches.",
     )
     parser.add_argument(
         "--no-cache-features",

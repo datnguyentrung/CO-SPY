@@ -2,6 +2,12 @@
 
 Tài liệu này hướng dẫn chi tiết cách chuẩn bị dữ liệu và các cell cần chạy khi huấn luyện mô hình **CO-SPY** (phiên bản mới nhất với Adaptive Fusion v2/v3) trên môi trường Kaggle Notebook (GPU khuyến nghị: P100, T4 x 2 hoặc A100).
 
+Từ phiên bản hiện tại, training tự lưu full-state checkpoint, tự resume khi
+chạy lại, và dừng an toàn trước giới hạn 12 giờ. Không cần sửa epoch trong
+notebook. Khi tạo Version mới, chỉ cần Add Output của Version trước làm Input.
+Xem [TRAINING_RECOVERY_GUIDE.md](TRAINING_RECOVERY_GUIDE.md) để biết đầy đủ quy
+trình Kaggle, Colab và chuyển checkpoint.
+
 ---
 
 ## 1. Nguồn Dữ Liệu & Link Tải (Datasets)
@@ -173,8 +179,13 @@ Nếu bạn chỉ chọn 1 GPU, chạy tuần tự 2 cell sau:
 
 ---
 
-### Cell 7: Đóng gói và Lưu Trữ Trọng Số (Checkpoints)
+### Cell 7: Đóng gói và Lưu Trữ Checkpoint
 ```bash
 !zip -r cospy_checkpoints.zip ckpt/
 ```
+
+`checkpoint_latest.pth`, `checkpoint_recovery.pth`, `checkpoint_best.pth` và
+`training_state.json` nằm trong thư mục của từng mode. Trainer không còn tạo
+file checkpoint theo mọi epoch. Nếu Version mới Add Output cũ làm Input,
+Trainer tự tìm checkpoint dưới `/kaggle/input` và tiếp tục từ batch tiếp theo.
 

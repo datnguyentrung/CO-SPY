@@ -14,3 +14,7 @@ imgs**
 .agents**
 test**
 **.zip
+logs**
+!tests/
+!tests/**
+**__pycache__

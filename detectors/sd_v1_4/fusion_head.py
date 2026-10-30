@@ -4,8 +4,6 @@ This module intentionally depends only on PyTorch so the fusion head can be
 tested independently from the large CLIP/VAE feature extractors.
 """
 
-from __future__ import annotations
-
 from typing import Dict, Sequence
 
 import torch

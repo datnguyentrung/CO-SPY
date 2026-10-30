@@ -59,7 +59,14 @@ class TrainDataset(Dataset):
     # OUTPUT:
     #     - Đối tượng TrainDataset.
     # -------------------------------------------------------------------------
-    def __init__(self, train_dataset, split="train", add_jpeg=False, transform=None):
+    def __init__(
+        self,
+        train_dataset,
+        split="train",
+        add_jpeg=False,
+        transform=None,
+        seed=None,
+    ):
         assert split in ["train", "val"]
         # Thư mục gốc chứa dữ liệu huấn luyện
         root_dir = f"data/train/{train_dataset}"
@@ -81,9 +88,15 @@ class TrainDataset(Dataset):
         for i in fake_list:
             self.labels_dict[i] = 1
 
-        # Gộp toàn bộ danh sách và xáo trộn ngẫu nhiên
+        # Gộp toàn bộ danh sách và xáo trộn ngẫu nhiên. Khi training truyền
+        # seed, thứ tự path được ổn định để sampler checkpoint có cùng ý nghĩa
+        # giữa Kaggle, Colab và local.
         self.total_list = real_list + fake_list
-        np.random.shuffle(self.total_list)
+        if seed is None:
+            np.random.shuffle(self.total_list)
+        else:
+            self.total_list.sort()
+            np.random.RandomState(int(seed)).shuffle(self.total_list)
 
         self.add_jpeg = add_jpeg
         self.transform = transform

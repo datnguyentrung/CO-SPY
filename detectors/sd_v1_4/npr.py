@@ -1,7 +1,5 @@
 """Optional NPR feature branch for CO-SPY fusion v3."""
 
-from __future__ import annotations
-
 import torch
 from torch import nn
 from torch.nn import functional as F

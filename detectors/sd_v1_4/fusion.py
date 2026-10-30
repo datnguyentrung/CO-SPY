@@ -1,7 +1,5 @@
 """CO-SPY fusion detectors with backward-compatible v1 and adaptive v2/v3."""
 
-from __future__ import annotations
-
 from typing import Optional, Sequence, Tuple
 
 import numpy as np

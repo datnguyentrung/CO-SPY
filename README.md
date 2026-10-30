@@ -25,6 +25,7 @@ Table of Contents
     - [Evaluation of Pre-trained Detectors](#evaluation-of-pre-trained-detectors)
     - [Inference on a Single Image](#inference-on-a-single-image)
     - [Training](#training)
+    - [Training recovery and auto-resume](#training-recovery-and-auto-resume)
   - [Citation](#citation)
   - [Acknowledgement](#acknowledgement)
 
@@ -374,6 +375,35 @@ You can also evaluate the branch models separately to understand their individua
 ```bash
 python main.py --gpu 1 --phase eval --train_dataset progan --mode branch --branch semantic
 ```
+
+### Training recovery and auto-resume
+
+Training now writes atomic full-state checkpoints, detects a compatible
+checkpoint automatically, and resumes at the next safe batch after Kaggle,
+Colab, or another session interruption. The same checkpoint contains model,
+optimizer, scheduler, AMP/EMA state when applicable, RNG, global step, best
+metric, and DataLoader position.
+
+```bash
+# Normal run: auto-resume is enabled by default
+python main.py --phase train --mode branch --branch artifact \
+    --train_dataset sd-v1_4 --epochs 20
+
+# Deliberately ignore existing checkpoints
+python main.py --phase train ... --no-resume
+
+# Load model weights only and restart optimizer/scheduler/epoch
+python main.py --phase train ... --resume-mode weights
+```
+
+On Kaggle, save the notebook version, attach its output as input to the next
+version, and rerun the same training cell. Checkpoints are found recursively
+under `/kaggle/input`. Colab can write directly to a mounted Drive checkpoint
+directory through `--ckpt` or `--checkpoint-dir`.
+
+See [TRAINING_RECOVERY_GUIDE.md](TRAINING_RECOVERY_GUIDE.md) for the checkpoint
+layout, timeout controls, cross-platform transfer, storage report, retention,
+and recovery guarantees.
 
 ## Citation
 Please cite our paper if you find it useful for your research.😀

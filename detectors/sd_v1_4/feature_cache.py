@@ -1,10 +1,7 @@
 """One-pass feature caching for efficient adaptive-fusion calibration."""
 
-from __future__ import annotations
-
 import json
 import os
-from typing import Optional
 
 import numpy as np
 import torch
