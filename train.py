@@ -533,6 +533,8 @@ class Trainer:
         )
 
         logger.info(f"Train size {len(train_dataset)} | Val size {len(val_dataset)}")
+        print(f"[TRAIN] Hoàn thành chuẩn bị dữ liệu train! "
+              f"Train size: {len(train_dataset)} | Val size: {len(val_dataset)}", flush=True)
         if self.feat_interp and self.mode == "branch" and self.branch == "semantic":
             logger.info(
                 f"feat_interp ON | alpha={self.feat_interp_alpha} "
@@ -552,12 +554,20 @@ class Trainer:
                 eval_loss, y_pred, y_true = self.train_step(batch_data)
                 ap, accuracy = evaluate(y_pred, y_true)
 
-                # In thông số sau mỗi 100 batch
+                # In thông số sau mỗi 100 batch ra cả terminal lẫn file log
                 if (step_id + 1) % 100 == 0:
                     time_end = time.time()
-                    logger.info(
-                        f"Epoch {epoch} | Batch {step_id + 1}/{len(train_loader)} | Loss {eval_loss:.4f} | AP {ap * 100:.2f}% | Accuracy {accuracy * 100:.2f}% | Time {time_end - time_start:.2f}s"
+                    msg = (
+                        f"Epoch {epoch}/{self.epochs - 1} | "
+                        f"Batch {step_id + 1}/{len(train_loader)} | "
+                        f"Loss {eval_loss:.4f} | "
+                        f"AP {ap * 100:.2f}% | "
+                        f"Accuracy {accuracy * 100:.2f}% | "
+                        f"LR {self.optimizer.param_groups[0]['lr']:.2e} | "
+                        f"Time {time_end - time_start:.2f}s"
                     )
+                    logger.info(msg)
+                    print(f"[TRAIN] {msg}", flush=True)
                     time_start = time.time()
 
             # Đánh giá mô hình trên tập validation (Evaluation)
@@ -606,9 +616,14 @@ class Trainer:
             ap, accuracy = evaluate(y_pred, y_true)
             eval_type = "Test" if self.mode == "branch" else "Total"
             cur_lr = self.optimizer.param_groups[0]["lr"]
-            logger.info(
-                f"Epoch {epoch} | {eval_type} AP {ap * 100:.2f}% | {eval_type} Accuracy {accuracy * 100:.2f}% | LR {cur_lr:.2e}"
+            val_msg = (
+                f"Epoch {epoch}/{self.epochs - 1} | "
+                f"{eval_type} AP {ap * 100:.2f}% | "
+                f"{eval_type} Accuracy {accuracy * 100:.2f}% | "
+                f"LR {cur_lr:.2e}"
             )
+            logger.info(val_msg)
+            print(f"[VAL]   {val_msg}", flush=True)
 
             if not self.lr_step_per_batch:
                 self._step_lr_per_epoch(epoch)
@@ -625,9 +640,9 @@ class Trainer:
                 self.model.save_weights(f"{model_dir}/best_model.pth")
                 metric_name = "AP" if use_ap_checkpoint else "accuracy"
                 metric_value = ap if use_ap_checkpoint else accuracy
-                logger.info(
-                    f"Best model saved with {metric_name} {metric_value * 100:.2f}%"
-                )
+                save_msg = f"Best model saved with {metric_name} {metric_value * 100:.2f}%"
+                logger.info(save_msg)
+                print(f"[CKPT]  {save_msg}", flush=True)
             else:
                 epochs_without_improvement += 1
 
@@ -637,10 +652,12 @@ class Trainer:
                 logger.info(f"Model saved at epoch {epoch}")
             if use_ap_checkpoint and epochs_without_improvement >= 5:
                 logger.info("Early stopping after 5 epochs without AP improvement")
+                print("[TRAIN] Early stopping triggered sau 5 epoch không cải thiện AP.", flush=True)
                 break
 
         # Lưu mô hình cuối cùng sau khi hoàn tất tất cả epoch
         self.model.save_weights(f"{model_dir}/final_model.pth")
         logger.info("Final model saved")
+        print("[TRAIN] Huấn luyện hoàn tất! Final model đã được lưu.", flush=True)
 
         logger.remove(logger_id)
