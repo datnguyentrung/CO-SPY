@@ -91,34 +91,52 @@ echo "Hoàn thành chuẩn bị dữ liệu train!"
 %%bash
 echo "=== Khởi chạy huấn luyện song song trên 2 GPU ==="
 
+# Log vừa hiện trên notebook vừa được ghi vào file. Tiền tố [ART]/[SEM]
+# giúp phân biệt hai process đang chạy song song.
+run_branch() {
+    local label="$1"
+    local log_file="$2"
+    shift 2
+    set -o pipefail
+    PYTHONUNBUFFERED=1 python "$@" 2>&1 \
+        | tee "$log_file" \
+        | sed -u "s/^/[$label] /"
+}
+
 # 1. Chạy ngầm nhánh Artifact trên GPU 0
-python main.py \
+run_branch ART train_artifact.log main.py \
     --phase train \
     --gpu 0 \
     --mode branch \
     --branch artifact \
     --train_dataset sd-v1_4 \
-    --epochs 20 > train_artifact.log 2>&1 &
+    --epochs 20 &
 PID_ART=$!
 echo "Đã khởi chạy Artifact trên GPU 0 (PID: $PID_ART)"
 
 # 2. Chạy ngầm nhánh Semantic trên GPU 1
-python main.py \
+run_branch SEM train_semantic.log main.py \
     --phase train \
     --gpu 1 \
     --mode branch \
     --branch semantic \
     --train_dataset sd-v1_4 \
     --epochs 10 \
-    --feat_interp > train_semantic.log 2>&1 &
+    --feat_interp &
 PID_SEM=$!
 echo "Đã khởi chạy Semantic trên GPU 1 (PID: $PID_SEM)"
 
-# 3. Theo dõi tiến trình cho đến khi hoàn tất
-wait $PID_ART $PID_SEM
-echo "=== Cả 2 GPU đã hoàn thành huấn luyện! ==="
+# 3. Theo dõi tiến trình và giữ đúng exit code của Python
+STATUS=0
+wait "$PID_ART" || STATUS=1
+wait "$PID_SEM" || STATUS=1
+if [ "$STATUS" -ne 0 ]; then
+    echo "=== Có process training thất bại; xem log phía trên. ==="
+    exit "$STATUS"
+fi
+echo "=== Cả 2 GPU đã hoàn thành huấn luyện ==="
 ```
-*(Bạn có thể mở một cell phụ với lệnh `!tail -n 20 train_artifact.log` hoặc `!tail -n 20 train_semantic.log` để theo dõi tiến độ log).*
+*(Log vẫn được lưu tại `train_artifact.log` và `train_semantic.log` để xem lại sau khi Save Version hoàn tất.)*
 
 ---
 
