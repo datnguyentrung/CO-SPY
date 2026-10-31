@@ -53,7 +53,7 @@ python main.py \
     --mode branch \
     --branch artifact \
     --train_dataset "$dataset" \
-    --epochs 20
+    --epochs 10
 
 # Semantic branch training (feature interpolation is only applied for sd-v1_4)
 semantic_extra=""
@@ -79,7 +79,7 @@ if [[ "$use_npr" == "1" || "$fusion_head" == "v3" || "$fusion_head" == "v3_npr" 
         --mode branch \
         --branch npr \
         --train_dataset "$dataset" \
-        --epochs 20
+        --epochs 10
     npr_args="--npr"
 fi
 

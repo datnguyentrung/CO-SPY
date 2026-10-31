@@ -7,7 +7,8 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from dataSets import FusionFeatureDataset
+from checkpoint_manager import dataset_fingerprint, model_signature
+from dataSets import BranchFeatureDataset, FusionFeatureDataset
 
 
 def _open_memmap(path: str, shape, dtype=np.float16):
@@ -141,4 +142,126 @@ def build_fusion_feature_cache(
         np.load(art_path, mmap_mode="r"),
         np.load(label_path, mmap_mode="r"),
         np.load(npr_path, mmap_mode="r") if has_npr else None,
+    )
+
+
+def build_branch_feature_cache(
+    model,
+    dataset,
+    cache_dir: str,
+    split: str,
+    branch: str,
+    device: str,
+    batch_size: int = 32,
+    num_workers: int = 4,
+    force: bool = False,
+) -> BranchFeatureDataset:
+    """Extract frozen branch features once and reuse them on later epochs."""
+    if branch not in {"artifact", "semantic", "npr"}:
+        raise ValueError(f"Unsupported branch feature cache: {branch}")
+    if branch != "semantic" and any(
+        parameter.requires_grad for parameter in model.artifact_encoder.parameters()
+    ):
+        raise ValueError(
+            f"Cannot cache {branch} outputs while its encoder is trainable"
+        )
+
+    os.makedirs(cache_dir, exist_ok=True)
+    feature_path = os.path.join(cache_dir, f"{split}_{branch}.npy")
+    label_path = os.path.join(cache_dir, f"{split}_labels.npy")
+    metadata_path = os.path.join(cache_dir, f"{split}_metadata.json")
+    dataset_id = dataset_fingerprint(dataset)
+    architecture_id = model_signature(model)
+    feature_dim = int(model.fc.in_features)
+
+    if not force and all(
+        os.path.exists(path)
+        for path in (feature_path, label_path, metadata_path)
+    ):
+        with open(metadata_path, "r", encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        if (
+            metadata.get("length") == len(dataset)
+            and metadata.get("branch") == branch
+            and metadata.get("feature_dim") == feature_dim
+            and metadata.get("dataset_fingerprint") == dataset_id
+            and metadata.get("architecture_id") == architecture_id
+        ):
+            features = np.load(feature_path, mmap_mode="r")
+            labels = np.load(label_path, mmap_mode="r")
+            if (
+                features.shape == (len(dataset), feature_dim)
+                and labels.shape == (len(dataset),)
+            ):
+                return BranchFeatureDataset(features, labels)
+
+    model.eval()
+    loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=device.startswith("cuda"),
+    )
+    feature_cache = _open_memmap(
+        feature_path,
+        (len(dataset), feature_dim),
+    )
+    labels = np.empty(len(dataset), dtype=np.int8)
+
+    if branch == "semantic":
+        encode_fn = (
+            getattr(model.clip, "encode_image", None)
+            or model.clip.get_image_features
+        )
+    else:
+        encode_fn = model.artifact_encoder
+
+    offset = 0
+    for images, batch_labels in tqdm(
+        loader,
+        desc=f"Caching {branch} features ({split})",
+    ):
+        images = images.to(device, non_blocking=True)
+        with torch.no_grad():
+            features = encode_fn(images)
+        count = images.shape[0]
+        feature_cache[offset : offset + count] = (
+            features.float().cpu().numpy().astype(np.float16)
+        )
+        labels[offset : offset + count] = batch_labels.cpu().numpy()
+        offset += count
+
+    if offset != len(dataset):
+        raise RuntimeError(
+            f"Feature cache wrote {offset} of {len(dataset)} samples"
+        )
+
+    feature_cache.flush()
+    np.save(label_path, labels)
+    metadata = {
+        "length": len(dataset),
+        "branch": branch,
+        "feature_dim": feature_dim,
+        "dataset_fingerprint": dataset_id,
+        "architecture_id": architecture_id,
+        "dtype": "float16",
+    }
+    with open(metadata_path, "w", encoding="utf-8") as handle:
+        json.dump(metadata, handle, indent=2)
+
+    if hasattr(dataset, "total_list"):
+        manifest_path = os.path.join(cache_dir, f"{split}_paths.jsonl")
+        with open(manifest_path, "w", encoding="utf-8") as handle:
+            for path in dataset.total_list:
+                record = {
+                    "path": path,
+                    "label": int(dataset.labels_dict[path]),
+                    "split": split,
+                }
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    return BranchFeatureDataset(
+        np.load(feature_path, mmap_mode="r"),
+        np.load(label_path, mmap_mode="r"),
     )

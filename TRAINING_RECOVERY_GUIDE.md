@@ -249,7 +249,9 @@ mục đó vào Drive rồi truyền lại bằng `--resume-path`.
 
 1. Tải thư mục checkpoint của mode đang train từ Kaggle Output.
 2. Upload nguyên thư mục vào Google Drive.
-3. Dùng cùng dataset, model mode, batch size, epochs và seed.
+3. Dùng cùng dataset, model mode, batch size và seed. Có thể giảm `epochs`,
+   patience hoặc bật/tắt feature cache khi resume; kiến trúc, dataset,
+   optimizer và batch size vẫn phải khớp.
 4. Trỏ `--ckpt` tới thư mục cha hoặc dùng `--resume-path` tới file full state.
 
 Ví dụ:
@@ -264,8 +266,9 @@ python main.py \
   --ckpt /content/drive/MyDrive/CO-SPY/ckpt
 ```
 
-Không đổi `epochs`, `batch_size`, `seed`, dataset path set hoặc kiến trúc nếu
-muốn resume full. Các cấu hình này là một phần của compatibility contract.
+Có thể đổi `epochs`, `early_stopping_patience` và `cache_features` khi resume
+full. Không đổi `batch_size`, `seed`, dataset path set, optimizer hoặc kiến
+trúc nếu muốn tiếp tục đúng quỹ đạo checkpoint.
 
 Nếu chỉ muốn chuyển weights:
 

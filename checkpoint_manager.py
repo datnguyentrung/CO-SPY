@@ -75,6 +75,28 @@ def _deep_equal(left: Any, right: Any) -> bool:
     return _canonical_json(left) == _canonical_json(right)
 
 
+def _resume_training_config(config: Any) -> dict[str, Any]:
+    """Keep state-affecting fields while allowing safe run-control changes."""
+    values = dict(config or {})
+    for key in (
+        "epochs",
+        "early_stopping_patience",
+        "cache_features",
+        "branch_features_cached",
+        "num_workers",
+    ):
+        values.pop(key, None)
+    return values
+
+
+def _resume_scheduler_config(config: Any) -> dict[str, Any]:
+    """Ignore horizon fields that may change when shortening total epochs."""
+    values = dict(config or {})
+    values.pop("T_max", None)
+    values.pop("eta_min", None)
+    return values
+
+
 def _fsync_file(handle) -> None:
     handle.flush()
     try:
@@ -649,7 +671,23 @@ class CheckpointManager:
                 )
             return
         saved_compatibility = payload.get("compatibility")
-        if not _deep_equal(saved_compatibility, self.compatibility):
+        current_compatibility = self.compatibility
+        if isinstance(saved_compatibility, Mapping):
+            saved_compatibility = dict(saved_compatibility)
+            current_compatibility = dict(current_compatibility)
+            saved_compatibility["training_config"] = _resume_training_config(
+                saved_compatibility.get("training_config")
+            )
+            current_compatibility["training_config"] = _resume_training_config(
+                current_compatibility.get("training_config")
+            )
+            saved_compatibility["scheduler_config"] = _resume_scheduler_config(
+                saved_compatibility.get("scheduler_config")
+            )
+            current_compatibility["scheduler_config"] = _resume_scheduler_config(
+                current_compatibility.get("scheduler_config")
+            )
+        if not _deep_equal(saved_compatibility, current_compatibility):
             raise CheckpointCompatibilityError(
                 f"{source}: experiment, architecture, dataset, or training "
                 "configuration is incompatible"

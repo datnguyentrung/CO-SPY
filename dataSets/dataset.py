@@ -387,3 +387,20 @@ class FusionFeatureDataset(Dataset):
             return sem, art, label
         npr = torch.from_numpy(np.asarray(self.npr_features[index]))
         return sem, art, npr, label
+
+
+class BranchFeatureDataset(Dataset):
+    """Load cached frozen-encoder features for a single detector branch."""
+
+    def __init__(self, features, labels):
+        self.features = features
+        self.labels = labels
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, index):
+        feature = torch.from_numpy(
+            np.asarray(self.features[index]).copy()
+        )
+        return feature, int(self.labels[index])

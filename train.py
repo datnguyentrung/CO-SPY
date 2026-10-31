@@ -131,6 +131,7 @@ class Trainer:
         pre_timeout_minutes: float = 15.0,
         num_workers: int = 4,
         log_interval_batches: int = 100,
+        early_stopping_patience: int = 5,
     ):
 
         self.device = device
@@ -161,6 +162,8 @@ class Trainer:
         self.pre_timeout_minutes = pre_timeout_minutes
         self.num_workers = num_workers
         self.log_interval_batches = max(1, int(log_interval_batches))
+        self.early_stopping_patience = max(0, int(early_stopping_patience))
+        self.branch_features_cached = False
         self.global_step = 0
         if fusion_head in {"v3", "v3_npr"} or npr:
             self.fusion_head = "v3"
@@ -403,22 +406,29 @@ class Trainer:
                 loss = self.criterion(outputs, labels.unsqueeze(1).float())
         else:
             inputs, labels = batch_data
-            inputs, labels = inputs.to(self.device), labels.to(self.device)
+            inputs = inputs.to(self.device, non_blocking=True)
+            labels = labels.to(self.device, non_blocking=True)
 
             # Nội suy không gian đặc trưng (Feature-space interpolation / Mixup) cho nhánh Semantic
             use_feat_interp = (
                 self.feat_interp and self.mode == "branch" and self.branch == "semantic"
             )
             if use_feat_interp:
-                with torch.no_grad():
-                    encode_fn = (
-                        getattr(self.model.clip, "encode_image", None)
-                        or self.model.clip.get_image_features
-                    )
-                    feats = encode_fn(inputs)
+                if self.branch_features_cached:
+                    feats = inputs
+                else:
+                    with torch.no_grad():
+                        encode_fn = (
+                            getattr(self.model.clip, "encode_image", None)
+                            or self.model.clip.get_image_features
+                        )
+                        feats = encode_fn(inputs)
                 feats_mixed, labels_soft = self._mix_features(feats, labels)
-                outputs = self.model.fc(feats_mixed)
+                outputs = self.model.fc(feats_mixed.float())
                 loss = self.criterion(outputs, labels_soft.unsqueeze(1))
+            elif self.branch_features_cached:
+                outputs = self.model.fc(inputs.float())
+                loss = self.criterion(outputs, labels.unsqueeze(1).float())
             else:
                 outputs = self.model(inputs)
                 loss = self.criterion(outputs, labels.unsqueeze(1).float())
@@ -622,7 +632,8 @@ class Trainer:
                 f"interval={self.checkpoint_interval_minutes}m | "
                 f"timeout={self.session_timeout_minutes}m | "
                 f"pre_timeout={self.pre_timeout_minutes}m | "
-                f"recovery_retention={self.recovery_retention}"
+                f"recovery_retention={self.recovery_retention} | "
+                f"early_stopping_patience={self.early_stopping_patience}"
             )
             # Chuẩn bị dataset. Seed cố định giúp index của sampler giữ nguyên
             # nghĩa khi checkpoint được chuyển giữa các nền tảng.
@@ -703,8 +714,49 @@ class Trainer:
                     transform=self.model.val_transform,
                     seed=self.seed,
                 )
-                train_dataset = raw_train_dataset
-                val_dataset = raw_val_dataset
+                if (
+                    self.mode == "branch"
+                    and self.branch == "semantic"
+                    and self.cache_features
+                    and self.dir_name == "sd-v1_4"
+                ):
+                    from detectors.sd_v1_4.feature_cache import (
+                        build_branch_feature_cache,
+                    )
+
+                    cache_dir = os.path.join(
+                        model_dir,
+                        "features",
+                        self.branch,
+                    )
+                    logger.info(
+                        f"[FEATURE CACHE] Building or loading {self.branch} "
+                        f"features from {cache_dir}"
+                    )
+                    train_dataset = build_branch_feature_cache(
+                        self.model,
+                        raw_train_dataset,
+                        cache_dir,
+                        "train",
+                        self.branch,
+                        self.device,
+                        batch_size=self.batch_size,
+                        num_workers=self.num_workers,
+                    )
+                    val_dataset = build_branch_feature_cache(
+                        self.model,
+                        raw_val_dataset,
+                        cache_dir,
+                        "val",
+                        self.branch,
+                        self.device,
+                        batch_size=self.batch_size,
+                        num_workers=self.num_workers,
+                    )
+                    self.branch_features_cached = True
+                else:
+                    train_dataset = raw_train_dataset
+                    val_dataset = raw_val_dataset
 
             first_loader, _, _ = self._make_train_loader(train_dataset, epoch=0)
             val_loader = torch.utils.data.DataLoader(
@@ -768,6 +820,8 @@ class Trainer:
                     "feat_interp_alpha": self.feat_interp_alpha,
                     "feat_interp_ratio": self.feat_interp_ratio,
                     "cache_features": self.cache_features,
+                    "branch_features_cached": self.branch_features_cached,
+                    "early_stopping_patience": self.early_stopping_patience,
                     "num_workers": self.num_workers,
                     "steps_per_epoch": len(train_dataset) // self.batch_size
                     + int(len(train_dataset) % self.batch_size != 0),
@@ -802,9 +856,10 @@ class Trainer:
             if not resume.resumed:
                 logger.info("[TRAINING] Starting from epoch 1.")
 
-            use_ap_checkpoint = (
+            use_ap_checkpoint = self.mode == "branch" or (
                 self.mode == "fusion" and self.fusion_head != "v1"
             )
+            checkpoint_metric_name = "AP" if use_ap_checkpoint else "Accuracy"
             best_ap = -float("inf")
             best_acc = -float("inf")
             epochs_without_improvement = 0
@@ -1029,7 +1084,20 @@ class Trainer:
                                 y_true.extend(labels.tolist())
                             else:
                                 images, labels = batch
-                                y_pred.extend(self.model.predict(images))
+                                if self.branch_features_cached:
+                                    images = images.to(
+                                        self.device,
+                                        non_blocking=True,
+                                    )
+                                    logits = self.model.fc(images.float())
+                                    y_pred.extend(
+                                        logits.sigmoid()
+                                        .flatten()
+                                        .cpu()
+                                        .tolist()
+                                    )
+                                else:
+                                    y_pred.extend(self.model.predict(images))
                                 y_true.extend(labels.tolist())
                             if controller.should_stop():
                                 validation_interrupted = True
@@ -1138,12 +1206,20 @@ class Trainer:
                         f"{epoch + 1} | {latest_size_mb:.2f} MiB | "
                         f"{time.monotonic() - started_at:.2f}s"
                     )
-                    if use_ap_checkpoint and epochs_without_improvement >= 5:
+                    if (
+                        self.early_stopping_patience > 0
+                        and epochs_without_improvement
+                        >= self.early_stopping_patience
+                    ):
                         logger.info(
-                            "Early stopping after 5 epochs without AP improvement"
+                            "Early stopping after "
+                            f"{self.early_stopping_patience} epochs without "
+                            f"{checkpoint_metric_name} improvement"
                         )
                         print(
-                            "[TRAIN] Early stopping after 5 epochs without AP improvement.",
+                            "[TRAIN] Early stopping after "
+                            f"{self.early_stopping_patience} epochs without "
+                            f"{checkpoint_metric_name} improvement.",
                             flush=True,
                         )
                         early_stopped = True
@@ -1172,9 +1248,15 @@ class Trainer:
                 last_completed_epoch is not None
                 and last_completed_epoch + 1 >= self.epochs
             ):
+                completed_epochs = (
+                    last_completed_epoch + 1
+                    if last_completed_epoch is not None
+                    else resume_epoch
+                )
                 manager.mark_status(
                     STATUS_COMPLETED,
-                    current_epoch=self.epochs,
+                    current_epoch=completed_epochs,
+                    early_stopped=early_stopped,
                     last_checkpoint=manager.state.get("last_checkpoint"),
                 )
                 logger.info("[TRAINING] Training completed.")

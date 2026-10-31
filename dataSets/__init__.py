@@ -30,6 +30,7 @@ DANH SÁCH CÁC THÀNH PHẦN XUẤT KHẨU TRONG FILE:
 
 from .dataset import (
     AIGCDetectTestDataset,
+    BranchFeatureDataset,
     CoSpyBenchTestDataset,
     FusionEvalDataset,
     FusionFeatureDataset,
@@ -100,6 +101,7 @@ __all__ = [
     "AIGCDetectTestDataset",
     "AIGCDetectionBenchMark_DATASET_LIST",
     "AIGCDetectionBenchMark_MODEL_LIST",
+    "BranchFeatureDataset",
     "CoSpyBenchTestDataset",
     "CoSpyBench_DATASET_LIST",
     "CoSpyBench_MODEL_LIST",

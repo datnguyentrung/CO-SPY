@@ -81,6 +81,7 @@ def main(args):
             pre_timeout_minutes=args.pre_timeout_minutes,
             num_workers=args.num_workers,
             log_interval_batches=args.log_interval_batches,
+            early_stopping_patience=args.early_stopping_patience,
         )
         # Bắt đầu quá trình huấn luyện
         trainer.train()
@@ -319,10 +320,22 @@ if __name__ == "__main__":
         help="Write batch progress to the log every N batches.",
     )
     parser.add_argument(
+        "--early-stopping-patience",
+        type=int,
+        default=5,
+        help=(
+            "Stop after N validation epochs without improvement in the "
+            "selected metric. Branch runs monitor AP; set 0 to disable."
+        ),
+    )
+    parser.add_argument(
         "--no-cache-features",
         action="store_false",
         dest="cache_features",
-        help="Disable one-pass feature caching for adaptive fusion.",
+        help=(
+            "Disable one-pass feature caching for the SD v1.4 semantic branch and "
+            "adaptive fusion."
+        ),
     )
     parser.set_defaults(cache_features=True)
 

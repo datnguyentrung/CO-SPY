@@ -28,6 +28,8 @@ def build_manager(
     optimizer_lr=0.1,
     resume_path=None,
     recovery_retention=1,
+    epochs=4,
+    scheduler_tmax=12,
 ):
     return CheckpointManager(
         checkpoint_dir=root,
@@ -37,17 +39,19 @@ def build_manager(
         model_config={"width": 4},
         dataset_id="sha256:test-dataset",
         training_config={
-            "epochs": 4,
+            "epochs": epochs,
             "batch_size": 2,
             "steps_per_epoch": 3,
             "seed": 7,
+            "early_stopping_patience": 5,
+            "cache_features": True,
         },
         optimizer_config={
             "class": "AdamW",
             "param_groups": [{"lr": optimizer_lr, "weight_decay": 0.0}],
         },
-        scheduler_config={"class": "CosineAnnealingLR", "T_max": 12},
-        total_epochs=4,
+        scheduler_config={"class": "CosineAnnealingLR", "T_max": scheduler_tmax},
+        total_epochs=epochs,
         resume_mode=resume_mode,
         resume_path=resume_path,
         checkpoint_interval_seconds=0,
@@ -224,6 +228,37 @@ class CheckpointManagerTests(unittest.TestCase):
             )
             self.assertTrue(weights_result.resumed)
             self.assertTrue(weights_result.weights_only)
+
+    def test_shortening_total_epochs_can_resume(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            manager = build_manager(root, epochs=20, scheduler_tmax=60)
+            model, optimizer, scheduler = build_runtime()
+            manager.save_full(
+                kind=LATEST_NAME,
+                models={"model": model},
+                optimizers={"optimizer": optimizer},
+                schedulers={"scheduler": scheduler},
+                resume_epoch=3,
+                batch_position=0,
+                global_step=9,
+                best_metric={"name": "ap", "value": 0.95, "mode": "max"},
+                last_completed_epoch=2,
+            )
+
+            restore_model, restore_optimizer, restore_scheduler = build_runtime()
+            result = build_manager(
+                root,
+                epochs=10,
+                scheduler_tmax=30,
+            ).find_and_restore(
+                models={"model": restore_model},
+                optimizers={"optimizer": restore_optimizer},
+                schedulers={"scheduler": restore_scheduler},
+            )
+
+            self.assertTrue(result.resumed)
+            self.assertEqual(result.start_epoch, 3)
 
     def test_best_weights_and_managed_retention(self):
         with tempfile.TemporaryDirectory() as temp:
