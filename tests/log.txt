@@ -1,0 +1,222 @@
+7.9s 1 0.00s - Debugger warning: It seems that frozen modules are being used, which may
+7.9s 2 0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+7.9s 3 0.00s - to python to disable frozen modules.
+7.9s 4 0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+8.5s 5 0.00s - Debugger warning: It seems that frozen modules are being used, which may
+8.5s 6 0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+8.5s 7 0.00s - to python to disable frozen modules.
+8.5s 8 0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+9.7s 9 Cloning into '/kaggle/working/cospy'...
+9.9s 10 Cloning into '/kaggle/working/cospy'...
+9.9s 11 
+9.9s 12 Cloning into '/kaggle/working/cospy'...
+10.6s 13 [SETUP] Working directory: /kaggle/working/cospy
+10.6s 14 [SETUP] Installing CO-SPY dependencies...
+20.3s 15 ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+20.3s 16 urwid 4.2.5 requires wcwidth!=0.9.0,!=0.9.1,>=0.4, but you have wcwidth 0.2.14 which is incompatible.
+20.3s 17 dopamine-rl 4.1.2 requires gym<=0.25.2, but you have gym 0.26.2 which is incompatible.
+20.3s 18 moviepy 1.0.3 requires decorator<5.0,>=4.0.2, but you have decorator 5.3.1 which is incompatible.
+20.3s 19 transformers 5.16.1 requires safetensors>=0.8.0, but you have safetensors 0.5.3 which is incompatible.
+20.3s 20 prettytable 3.18.0 requires wcwidth>=0.3.5, but you have wcwidth 0.2.14 which is incompatible.
+20.5s 21 ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+20.5s 22 urwid 4.2.5 requires wcwidth!=0.9.0,!=0.9.1,>=0.4, but you have wcwidth 0.2.14 which is incompatible.
+20.5s 23 dopamine-rl 4.1.2 requires gym<=0.25.2, but you have gym 0.26.2 which is incompatible.
+20.5s 24 moviepy 1.0.3 requires decorator<5.0,>=4.0.2, but you have decorator 5.3.1 which is incompatible.
+20.5s 25 transformers 5.16.1 requires safetensors>=0.8.0, but you have safetensors 0.5.3 which is incompatible.
+20.5s 26 prettytable 3.18.0 requires wcwidth>=0.3.5, but you have wcwidth 0.2.14 which is incompatible.
+20.5s 27 
+20.5s 28 ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+20.5s 29 urwid 4.2.5 requires wcwidth!=0.9.0,!=0.9.1,>=0.4, but you have wcwidth 0.2.14 which is incompatible.
+20.5s 30 dopamine-rl 4.1.2 requires gym<=0.25.2, but you have gym 0.26.2 which is incompatible.
+20.5s 31 moviepy 1.0.3 requires decorator<5.0,>=4.0.2, but you have decorator 5.3.1 which is incompatible.
+20.5s 32 transformers 5.16.1 requires safetensors>=0.8.0, but you have safetensors 0.5.3 which is incompatible.
+20.5s 33 prettytable 3.18.0 requires wcwidth>=0.3.5, but you have wcwidth 0.2.14 which is incompatible.
+20.5s 34 [SETUP] Dependencies ready.
+20.5s 35 [DATA] Using existing Kaggle input: /kaggle/input/datasets/datnguyentrung/co-spy-v1
+34.1s 36 [DATA] Linked /kaggle/working/cospy/data/train/sd-v1_4/stable-diffusion-v1-4/train2017 -> /kaggle/input/datasets/datnguyentrung/co-spy-v1/stable-diffusion-v1-4/stable-diffusion-v1-4/train2017
+35.5s 37 [DATA] Linked /kaggle/working/cospy/data/train/sd-v1_4/stable-diffusion-v1-4/val2017 -> /kaggle/input/datasets/datnguyentrung/co-spy-v1/stable-diffusion-v1-4/stable-diffusion-v1-4/val2017
+54.1s 38 [DATA] Linked /kaggle/working/cospy/data/train/sd-v1_4/mscoco2017/train2017 -> /kaggle/input/datasets/datnguyentrung/co-spy-v1/mscoco2017/mscoco2017/train2017
+55.5s 39 [DATA] Linked /kaggle/working/cospy/data/train/sd-v1_4/mscoco2017/val2017 -> /kaggle/input/datasets/datnguyentrung/co-spy-v1/mscoco2017/mscoco2017/val2017
+6413.4s 40 [DATA] SD train        73520 images | /kaggle/working/cospy/data/train/sd-v1_4/stable-diffusion-v1-4/train2017
+6846.9s 41 [DATA] SD val           5000 images | /kaggle/working/cospy/data/train/sd-v1_4/stable-diffusion-v1-4/val2017
+17035.9s 42 [DATA] COCO train     118287 images | /kaggle/working/cospy/data/train/sd-v1_4/mscoco2017/train2017
+17468.1s 43 [DATA] COCO val         5000 images | /kaggle/working/cospy/data/train/sd-v1_4/mscoco2017/val2017
+17468.1s 44 [DATA] Ready. No download or extraction was performed.
+17468.1s 45 [ART] START: /usr/bin/python3 -u main.py --phase train --gpu 0 --mode branch --branch artifact --train_dataset sd-v1_4 --epochs 10 --early-stopping-patience 5
+17468.1s 46 [SEM] START: /usr/bin/python3 -u main.py --phase train --gpu 1 --mode branch --branch semantic --train_dataset sd-v1_4 --epochs 10 --early-stopping-patience 5 --feat_interp
+17504.0s 47 [ART] Traceback (most recent call last):
+17504.0s 48 [SEM] Traceback (most recent call last):
+17504.0s 49 [ART]   File "/usr/local/lib/python3.13/dist-packages/diffusers/utils/import_utils.py", line 920, in _get_module
+17504.0s 50 [ART]     return importlib.import_module("." + module_name, self.__name__)
+17504.0s 51 [SEM]   File "/usr/local/lib/python3.13/dist-packages/diffusers/utils/import_utils.py", line 920, in _get_module
+17504.0s 52 [SEM]     return importlib.import_module("." + module_name, self.__name__)
+17504.0s 53 [ART]            ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17504.0s 54 [ART]   File "/usr/lib/python3.13/importlib/__init__.py", line 88, in import_module
+17504.0s 55 [SEM]            ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17504.0s 56 [SEM]   File "/usr/lib/python3.13/importlib/__init__.py", line 88, in import_module
+17504.0s 57 [SEM]     return _bootstrap._gcd_import(name[level:], package, level)
+17504.0s 58 [SEM]            ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17504.0s 59 [SEM]   File "<frozen importlib._bootstrap>", line 1395, in _gcd_import
+17504.0s 60 [ART]     return _bootstrap._gcd_import(name[level:], package, level)
+17504.0s 61 [ART]            ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17504.0s 62 [SEM]   File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+17504.0s 63 [SEM]   File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+17504.0s 64 [ART]   File "<frozen importlib._bootstrap>", line 1395, in _gcd_import
+17504.0s 65 [ART]   File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+17504.0s 66 [SEM]   File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+17504.0s 67 [SEM]   File "<frozen importlib._bootstrap_external>", line 1023, in exec_module
+17504.0s 68 [ART]   File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+17504.0s 69 [ART]   File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+17504.0s 70 [SEM]   File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+17504.0s 71 [SEM]   File "/usr/local/lib/python3.13/dist-packages/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py", line 19, in <module>
+17504.0s 72 [ART]   File "<frozen importlib._bootstrap_external>", line 1023, in exec_module
+17504.0s 73 [ART]   File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+17504.0s 74 [SEM]     from transformers import CLIPImageProcessor, CLIPTextModel, CLIPTokenizer, CLIPVisionModelWithProjection
+17504.0s 75 [ART]   File "/usr/local/lib/python3.13/dist-packages/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py", line 19, in <module>
+17504.0s 76 [SEM]   File "/usr/local/lib/python3.13/dist-packages/transformers/__init__.py", line 30, in <module>
+17504.0s 77 [SEM]     from . import dependency_versions_check
+17504.0s 78 [ART]     from transformers import CLIPImageProcessor, CLIPTextModel, CLIPTokenizer, CLIPVisionModelWithProjection
+17504.0s 79 [ART]   File "/usr/local/lib/python3.13/dist-packages/transformers/__init__.py", line 30, in <module>
+17504.0s 80 [SEM]   File "/usr/local/lib/python3.13/dist-packages/transformers/dependency_versions_check.py", line 56, in <module>
+17504.0s 81 [SEM]     require_version_core(deps[pkg])
+17504.0s 82 [ART]     from . import dependency_versions_check
+17504.0s 83 [ART]   File "/usr/local/lib/python3.13/dist-packages/transformers/dependency_versions_check.py", line 56, in <module>
+17504.0s 84 [SEM]     ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+17504.0s 85 [SEM]   File "/usr/local/lib/python3.13/dist-packages/transformers/utils/versions.py", line 116, in require_version_core
+17504.0s 86 [ART]     require_version_core(deps[pkg])
+17504.0s 87 [ART]     ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+17504.0s 88 [SEM]     return require_version(requirement, hint)
+17504.0s 89 [SEM]   File "/usr/local/lib/python3.13/dist-packages/transformers/utils/versions.py", line 110, in require_version
+17504.0s 90 [ART]   File "/usr/local/lib/python3.13/dist-packages/transformers/utils/versions.py", line 116, in require_version_core
+17504.0s 91 [ART]     return require_version(requirement, hint)
+17504.0s 92 [SEM]     _compare_versions(op, got_ver, want_ver, requirement, pkg, hint)
+17504.0s 93 [ART]   File "/usr/local/lib/python3.13/dist-packages/transformers/utils/versions.py", line 110, in require_version
+17504.0s 94 [ART]     _compare_versions(op, got_ver, want_ver, requirement, pkg, hint)
+17504.0s 95 [ART]     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17504.0s 96 [SEM]     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17504.0s 97 [SEM]   File "/usr/local/lib/python3.13/dist-packages/transformers/utils/versions.py", line 43, in _compare_versions
+17504.0s 98 [SEM]     raise ImportError(
+17504.1s 99 [ART]   File "/usr/local/lib/python3.13/dist-packages/transformers/utils/versions.py", line 43, in _compare_versions
+17504.1s 100 [SEM]         f"{requirement} is required for a normal functioning of this module, but found {pkg}=={got_ver}.{hint}"
+17504.1s 101 [ART]     raise ImportError(
+17504.1s 102 [SEM]     )
+17504.1s 103 [ART]         f"{requirement} is required for a normal functioning of this module, but found {pkg}=={got_ver}.{hint}"
+17504.1s 104 [SEM] ImportError: safetensors>=0.8.0 is required for a normal functioning of this module, but found safetensors==0.5.3.
+17504.1s 105 [SEM] Try: `pip install transformers -U` or `pip install -e '.[dev]'` if you're working with git main
+17504.1s 106 [SEM]
+17504.1s 107 [ART]     )
+17504.1s 108 [ART] ImportError: safetensors>=0.8.0 is required for a normal functioning of this module, but found safetensors==0.5.3.
+17504.1s 109 [SEM] The above exception was the direct cause of the following exception:
+17504.1s 110 [SEM]
+17504.1s 111 [SEM] Traceback (most recent call last):
+17504.1s 112 [ART] Try: `pip install transformers -U` or `pip install -e '.[dev]'` if you're working with git main
+17504.1s 113 [ART]
+17504.1s 114 [SEM]   File "/kaggle/working/cospy/main.py", line 351, in <module>
+17504.1s 115 [SEM]     main(args)
+17504.1s 116 [SEM]     ~~~~^^^^^^
+17504.1s 117 [ART] The above exception was the direct cause of the following exception:
+17504.1s 118 [ART]
+17504.1s 119 [SEM]   File "/kaggle/working/cospy/main.py", line 55, in main
+17504.1s 120 [SEM]     trainer = Trainer(
+17504.1s 121 [ART] Traceback (most recent call last):
+17504.1s 122 [SEM]         mode=args.mode,
+17504.1s 123 [SEM]     ...<27 lines>...
+17504.1s 124 [ART]   File "/kaggle/working/cospy/main.py", line 351, in <module>
+17504.1s 125 [ART]     main(args)
+17504.1s 126 [SEM]         early_stopping_patience=args.early_stopping_patience,
+17504.1s 127 [ART]     ~~~~^^^^^^
+17504.1s 128 [ART]   File "/kaggle/working/cospy/main.py", line 55, in main
+17504.1s 129 [ART]     trainer = Trainer(
+17504.1s 130 [SEM]     )
+17504.1s 131 [SEM]   File "/kaggle/working/cospy/train.py", line 189, in __init__
+17504.1s 132 [SEM]     detector_module = importlib.import_module(f"detectors.{pkg_name}")
+17504.1s 133 [SEM]   File "/usr/lib/python3.13/importlib/__init__.py", line 88, in import_module
+17504.1s 134 [ART]         mode=args.mode,
+17504.1s 135 [ART]     ...<27 lines>...
+17504.1s 136 [ART]         early_stopping_patience=args.early_stopping_patience,
+17504.1s 137 [SEM]     return _bootstrap._gcd_import(name[level:], package, level)
+17504.1s 138 [SEM]            ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17504.1s 139 [ART]     )
+17504.1s 140 [ART]   File "/kaggle/working/cospy/train.py", line 189, in __init__
+17504.1s 141 [SEM]   File "<frozen importlib._bootstrap>", line 1395, in _gcd_import
+17504.1s 142 [SEM]   File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+17504.1s 143 [SEM]   File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+17504.1s 144 [ART]     detector_module = importlib.import_module(f"detectors.{pkg_name}")
+17504.1s 145 [ART]   File "/usr/lib/python3.13/importlib/__init__.py", line 88, in import_module
+17504.1s 146 [SEM]   File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+17504.1s 147 [SEM]   File "<frozen importlib._bootstrap_external>", line 1023, in exec_module
+17504.1s 148 [SEM]   File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+17504.1s 149 [ART]     return _bootstrap._gcd_import(name[level:], package, level)
+17504.1s 150 [ART]            ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17504.1s 151 [ART]   File "<frozen importlib._bootstrap>", line 1395, in _gcd_import
+17504.1s 152 [SEM]   File "/kaggle/working/cospy/detectors/sd_v1_4/__init__.py", line 25, in <module>
+17504.1s 153 [SEM]     from .artifact import ArtifactDetector
+17504.1s 154 [SEM]   File "/kaggle/working/cospy/detectors/sd_v1_4/artifact.py", line 31, in <module>
+17504.1s 155 [ART]   File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+17504.1s 156 [ART]   File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+17504.1s 157 [ART]   File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+17504.1s 158 [SEM]     from diffusers import StableDiffusionPipeline
+17504.1s 159 [SEM]   File "<frozen importlib._bootstrap>", line 1420, in _handle_fromlist
+17504.1s 160 [ART]   File "<frozen importlib._bootstrap_external>", line 1023, in exec_module
+17504.1s 161 [SEM]   File "/usr/local/lib/python3.13/dist-packages/diffusers/utils/import_utils.py", line 911, in __getattr__
+17504.1s 162 [ART]   File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+17504.1s 163 [ART]   File "/kaggle/working/cospy/detectors/sd_v1_4/__init__.py", line 25, in <module>
+17504.1s 164 [ART]     from .artifact import ArtifactDetector
+17504.1s 165 [SEM]     value = getattr(module, name)
+17504.1s 166 [SEM]   File "/usr/local/lib/python3.13/dist-packages/diffusers/utils/import_utils.py", line 911, in __getattr__
+17504.1s 167 [SEM]     value = getattr(module, name)
+17504.1s 168 [ART]   File "/kaggle/working/cospy/detectors/sd_v1_4/artifact.py", line 31, in <module>
+17504.1s 169 [ART]     from diffusers import StableDiffusionPipeline
+17504.1s 170 [ART]   File "<frozen importlib._bootstrap>", line 1420, in _handle_fromlist
+17504.1s 171 [SEM]   File "/usr/local/lib/python3.13/dist-packages/diffusers/utils/import_utils.py", line 910, in __getattr__
+17504.1s 172 [SEM]     module = self._get_module(self._class_to_module[name])
+17504.1s 173 [ART]   File "/usr/local/lib/python3.13/dist-packages/diffusers/utils/import_utils.py", line 911, in __getattr__
+17504.1s 174 [ART]     value = getattr(module, name)
+17504.1s 175 [ART]   File "/usr/local/lib/python3.13/dist-packages/diffusers/utils/import_utils.py", line 911, in __getattr__
+17504.1s 176 [SEM]   File "/usr/local/lib/python3.13/dist-packages/diffusers/utils/import_utils.py", line 922, in _get_module
+17504.1s 177 [SEM]     raise RuntimeError(
+17504.1s 178 [SEM]     ...<2 lines>...
+17504.1s 179 [ART]     value = getattr(module, name)
+17504.1s 180 [ART]   File "/usr/local/lib/python3.13/dist-packages/diffusers/utils/import_utils.py", line 910, in __getattr__
+17504.1s 181 [ART]     module = self._get_module(self._class_to_module[name])
+17504.1s 182 [SEM]     ) from e
+17504.1s 183 [SEM] RuntimeError: Failed to import diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion because of the following error (look up to see its traceback):
+17504.1s 184 [SEM] safetensors>=0.8.0 is required for a normal functioning of this module, but found safetensors==0.5.3.
+17504.1s 185 [ART]   File "/usr/local/lib/python3.13/dist-packages/diffusers/utils/import_utils.py", line 922, in _get_module
+17504.1s 186 [ART]     raise RuntimeError(
+17504.1s 187 [SEM] Try: `pip install transformers -U` or `pip install -e '.[dev]'` if you're working with git main
+17504.1s 188 [ART]     ...<2 lines>...
+17504.1s 189 [ART]     ) from e
+17504.1s 190 [ART] RuntimeError: Failed to import diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion because of the following error (look up to see its traceback):
+17504.1s 191 [ART] safetensors>=0.8.0 is required for a normal functioning of this module, but found safetensors==0.5.3.
+17504.1s 192 [ART] Try: `pip install transformers -U` or `pip install -e '.[dev]'` if you're working with git main
+17508.4s 193 [TRAIN] Artifact exit=1 | Semantic exit=1
+17508.7s 194 Traceback (most recent call last):
+17508.7s 195 File "<string>", line 1, in <module>
+17508.7s 196 import sys;import papermill as pm;pm.execute_notebook("__notebook__.ipynb","__notebook__.ipynb",progress_bar=False,log_output=True,stdout_file=sys.stdout,stderr_file=sys.stderr,allow_errors=False,timeout=43200)
+17508.7s 197 ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17508.7s 198 File "/usr/local/lib/python3.13/dist-packages/papermill/execute.py", line 131, in execute_notebook
+17508.7s 199 raise_for_execution_errors(nb, output_path)
+17508.7s 200 ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+17508.7s 201 File "/usr/local/lib/python3.13/dist-packages/papermill/execute.py", line 251, in raise_for_execution_errors
+17508.7s 202 raise error
+17508.7s 203 papermill.exceptions.PapermillExecutionError:
+17508.7s 204 ---------------------------------------------------------------------------
+17508.7s 205 Exception encountered at "In [5]":
+17508.7s 206 ---------------------------------------------------------------------------
+17508.7s 207 RuntimeError                              Traceback (most recent call last)
+17508.7s 208 /tmp/ipykernel_23/2549608600.py in <cell line: 0>()
+17508.7s 209 40
+17508.7s 210 41 if artifact_code != 0 or semantic_code != 0:
+17508.7s 211 ---> 42     raise RuntimeError("At least one branch failed; check the logs above.")
+17508.7s 212 
+17508.7s 213 RuntimeError: At least one branch failed; check the logs above.
+17508.7s 214 
+17510.7s 215 /usr/local/lib/python3.13/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\|'
+17510.7s 216 cells[i][c] = re.sub('\\\\\|', '|', cell)
+17510.9s 217 /usr/local/lib/python3.13/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\_'
+17510.9s 218 text = re.sub(r'_', '\_', text) # Escape underscores in display text
+17511.6s 219 [NbConvertApp] Converting notebook __notebook__.ipynb to notebook
+17511.7s 220 [NbConvertApp] Writing 34580 bytes to __notebook__.ipynb
+17514.1s 221 [NbConvertApp] Converting notebook __notebook__.ipynb to html
+17514.6s 222 [NbConvertApp] Writing 333819 bytes to __results__.html

@@ -81,12 +81,41 @@ fi
     "accelerate==1.0.1" \
     "ftfy==6.2.3" \
     "tqdm==4.67.1" \
+    "transformers==4.46.3" \
     "safetensors==0.5.3"
+
+import importlib
+import importlib.metadata
+
+expected_versions = {
+    "transformers": "4.46.3",
+    "safetensors": "0.5.3",
+}
+for package, expected in expected_versions.items():
+    actual = importlib.metadata.version(package)
+    if actual != expected:
+        raise RuntimeError(
+            f"Expected {package}=={expected}, found {package}=={actual}. "
+            "Restart the Kaggle session and rerun this cell."
+        )
+
+importlib.import_module("diffusers")
+importlib.import_module("open_clip")
+from diffusers import StableDiffusionPipeline
 
 ```
 
+`transformers` phải được pin cùng `safetensors`. Một số image Kaggle mới có
+`transformers 5.x`, yêu cầu `safetensors>=0.8.0`; nếu chỉ hạ `safetensors`
+theo danh sách cũ, cả branch Artifact và Semantic sẽ lỗi import trước khi
+training bắt đầu.
+
 Không cài lại `torch`/`torchvision` nếu phiên Kaggle hiện tại đã chạy ổn; việc
 thay Torch có thể làm hỏng CUDA runtime của notebook.
+
+Notebook kiểm tra CUDA ngay sau bước import. Nếu chỉ có một GPU, Cell 4 tự chạy
+Artifact và Semantic tuần tự trên GPU 0; với T4 x 2, hai branch chạy song song
+trên GPU 0 và GPU 1. Bật **Internet** để Cell 1 clone được repository.
 
 ### Cell 3: Liên Kết Dataset Có Sẵn Vào Working Directory
 
