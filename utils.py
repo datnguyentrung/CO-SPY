@@ -45,6 +45,9 @@ from scipy.ndimage.filters import gaussian_filter
 from sklearn.metrics import average_precision_score
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+# DataLoader workers already provide parallelism; OpenCV worker pools multiply
+# processes when two branch jobs run concurrently on Kaggle.
+cv2.setNumThreads(0)
 
 
 # -------------------------------------------------------------------------

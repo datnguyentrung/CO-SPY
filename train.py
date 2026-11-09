@@ -63,7 +63,7 @@ warnings.filterwarnings("ignore")
 class EpochShuffleSampler(torch.utils.data.Sampler[int]):
     """Deterministic epoch permutation that can be reconstructed on resume."""
 
-    def __init__(self, data_source, seed: int, indices=None):
+    def __init__(self, data_source, seed: int, indices=None, start_index: int = 0):
         self.data_source = data_source
         self.seed = int(seed)
         if indices is None:
@@ -71,12 +71,13 @@ class EpochShuffleSampler(torch.utils.data.Sampler[int]):
             generator.manual_seed(self.seed)
             indices = torch.randperm(len(data_source), generator=generator).tolist()
         self.indices = [int(index) for index in indices]
+        self.start_index = max(0, min(int(start_index), len(self.indices)))
 
     def __iter__(self):
-        return iter(self.indices)
+        return iter(self.indices[self.start_index :])
 
     def __len__(self):
-        return len(self.indices)
+        return len(self.indices) - self.start_index
 
 
 # =============================================================================
@@ -130,8 +131,11 @@ class Trainer:
         session_timeout_minutes: float = 12 * 60,
         pre_timeout_minutes: float = 15.0,
         num_workers: int = 4,
+        precision: str = "auto",
+        prefetch_factor: int = 2,
         log_interval_batches: int = 100,
-        early_stopping_patience: int = 5,
+        early_stopping_patience: int = 2,
+        profile_batches: int = 0,
     ):
 
         self.device = device
@@ -161,10 +165,14 @@ class Trainer:
         self.session_timeout_minutes = session_timeout_minutes
         self.pre_timeout_minutes = pre_timeout_minutes
         self.num_workers = num_workers
+        self.precision = self._resolve_precision(precision, device)
+        self.prefetch_factor = max(1, int(prefetch_factor))
         self.log_interval_batches = max(1, int(log_interval_batches))
         self.early_stopping_patience = max(0, int(early_stopping_patience))
+        self.profile_batches = max(0, int(profile_batches))
         self.branch_features_cached = False
         self.global_step = 0
+        self._last_step_events = None
         if fusion_head in {"v3", "v3_npr"} or npr:
             self.fusion_head = "v3"
             self.npr = True
@@ -256,6 +264,12 @@ class Trainer:
             raise ValueError(f"Unknown mode: {self.mode}")
 
         self.model.to(self.device)
+        if self.device.startswith("cuda"):
+            torch.backends.cudnn.benchmark = True
+            if hasattr(torch.backends.cuda.matmul, "allow_tf32"):
+                torch.backends.cuda.matmul.allow_tf32 = True
+            if hasattr(torch.backends.cudnn, "allow_tf32"):
+                torch.backends.cudnn.allow_tf32 = True
         self.architecture_id = (
             f"{self.model.__class__.__module__}.{self.model.__class__.__name__}:"
             f"{model_signature(self.model)}"
@@ -289,6 +303,11 @@ class Trainer:
         self.optimizer = torch.optim.AdamW(
             params, lr=self._lr, betas=(_beta1, 0.999), weight_decay=_weight_decay
         )
+        scaler_enabled = self.device.startswith("cuda") and self.precision == "fp16"
+        try:
+            self.grad_scaler = torch.amp.GradScaler("cuda", enabled=scaler_enabled)
+        except AttributeError:  # pragma: no cover - compatibility with older PyTorch
+            self.grad_scaler = torch.cuda.amp.GradScaler(enabled=scaler_enabled)
 
         # Hàm mất mát phân loại nhị phân (Binary Cross Entropy with Logits)
         self.criterion = torch.nn.BCEWithLogitsLoss()
@@ -302,6 +321,24 @@ class Trainer:
             self.lr_step_per_batch = False
         else:
             raise ValueError(f"Unknown train dataset: {self.train_dataset}")
+
+    @staticmethod
+    def _resolve_precision(precision: str, device: str) -> str:
+        if precision not in {"auto", "fp32", "fp16", "bf16"}:
+            raise ValueError(f"Unknown precision: {precision}")
+        if precision == "auto":
+            return "fp16" if device.startswith("cuda") else "fp32"
+        if not device.startswith("cuda") and precision != "fp32":
+            return "fp32"
+        return precision
+
+    @property
+    def _amp_enabled(self) -> bool:
+        return self.device.startswith("cuda") and self.precision in {"fp16", "bf16"}
+
+    @property
+    def _amp_dtype(self):
+        return torch.float16 if self.precision == "fp16" else torch.bfloat16
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
@@ -352,98 +389,150 @@ class Trainer:
     #     - y_pred (list[float]): Danh sách xác suất dự đoán (sau hàm Sigmoid) cho các ảnh trong batch.
     #     - y_true (list[int]): Danh sách nhãn thực tế của batch.
     # -------------------------------------------------------------------------
-    def train_step(self, batch_data):
-        self.optimizer.zero_grad()
-
-        if self.mode == "fusion":
-            if self.fusion_head == "v1":
-                sem_t, art_t, labels = batch_data
-                sem_t = sem_t.to(self.device, non_blocking=True)
-                art_t = art_t.to(self.device, non_blocking=True)
-                labels = labels.to(self.device, non_blocking=True)
-                pred_sem = self.model.sem(sem_t)
-                pred_art = self.model.art(art_t)
-                feat = torch.cat([pred_sem, pred_art], dim=1)
-                if self.model.training and self.branch_dropout > 0:
-                    drop = torch.rand(feat.shape[0], device=feat.device) < (
-                        self.branch_dropout
-                    )
-                    stream = torch.randint(
-                        0, 2, (feat.shape[0],), device=feat.device
-                    )
-                    keep = torch.ones_like(feat)
-                    for index in range(2):
-                        keep[:, index] = torch.logical_not(
-                            torch.logical_and(drop, stream == index)
-                        ).to(feat.dtype)
-                    feat = feat * keep
-                outputs = self.model.fc(feat)
-                loss = self.criterion(outputs, labels.unsqueeze(1).float())
-                b = self.model.fc.bias[0]
-                loss = loss + torch.nn.functional.relu(self.bias_floor - b)
-            else:
-                if len(batch_data) == 4:
-                    sem_t, art_t, npr_t, labels = batch_data
-                    npr_t = npr_t.to(self.device, non_blocking=True)
-                else:
-                    sem_t, art_t, labels = batch_data
-                    npr_t = None
-                sem_t = sem_t.to(self.device, non_blocking=True)
-                art_t = art_t.to(self.device, non_blocking=True)
-                labels = labels.to(self.device, non_blocking=True)
-                if sem_t.ndim == 4 or art_t.ndim >= 4:
-                    sem_t, art_t, extracted_npr = self.model.extract_features(
-                        sem_t, art_t, include_npr=npr_t is None
-                    )
-                    if npr_t is not None:
-                        with torch.no_grad():
-                            npr_t = self.model.npr.artifact_encoder(npr_t)
-                    else:
-                        npr_t = extracted_npr
-                outputs = self.model.forward_features(
-                    sem_t, art_t, npr_t
-                )
-                loss = self.criterion(outputs, labels.unsqueeze(1).float())
-        else:
-            inputs, labels = batch_data
-            inputs = inputs.to(self.device, non_blocking=True)
-            labels = labels.to(self.device, non_blocking=True)
-
-            # Nội suy không gian đặc trưng (Feature-space interpolation / Mixup) cho nhánh Semantic
-            use_feat_interp = (
-                self.feat_interp and self.mode == "branch" and self.branch == "semantic"
+    def train_step(self, batch_data, *, collect_metrics: bool = False):
+        # CUDA events give useful forward/backward timings without turning every
+        # batch into a device-wide synchronization point.
+        step_events = None
+        if self.device.startswith("cuda"):
+            step_events = (
+                torch.cuda.Event(enable_timing=True),
+                torch.cuda.Event(enable_timing=True),
+                torch.cuda.Event(enable_timing=True),
             )
-            if use_feat_interp:
-                if self.branch_features_cached:
-                    feats = inputs
+            step_events[0].record()
+        self.optimizer.zero_grad(set_to_none=True)
+        with torch.autocast(
+            device_type="cuda" if self.device.startswith("cuda") else "cpu",
+            dtype=self._amp_dtype,
+            enabled=self._amp_enabled,
+        ):
+            if self.mode == "fusion":
+                if self.fusion_head == "v1":
+                    sem_t, art_t, labels = batch_data
+                    sem_t = sem_t.to(self.device, non_blocking=True)
+                    art_t = art_t.to(self.device, non_blocking=True)
+                    labels = labels.to(self.device, non_blocking=True)
+                    pred_sem = self.model.sem(sem_t)
+                    pred_art = self.model.art(art_t)
+                    feat = torch.cat([pred_sem, pred_art], dim=1)
+                    if self.model.training and self.branch_dropout > 0:
+                        drop = torch.rand(feat.shape[0], device=feat.device) < self.branch_dropout
+                        stream = torch.randint(0, 2, (feat.shape[0],), device=feat.device)
+                        keep = torch.ones_like(feat)
+                        for index in range(2):
+                            keep[:, index] = torch.logical_not(
+                                torch.logical_and(drop, stream == index)
+                            ).to(feat.dtype)
+                        feat = feat * keep
+                    outputs = self.model.fc(feat)
+                    loss = self.criterion(outputs, labels.unsqueeze(1).float())
+                    loss = loss + torch.nn.functional.relu(self.bias_floor - self.model.fc.bias[0])
                 else:
-                    with torch.no_grad():
-                        encode_fn = (
-                            getattr(self.model.clip, "encode_image", None)
-                            or self.model.clip.get_image_features
+                    if len(batch_data) == 4:
+                        sem_t, art_t, npr_t, labels = batch_data
+                        npr_t = npr_t.to(self.device, non_blocking=True)
+                    else:
+                        sem_t, art_t, labels = batch_data
+                        npr_t = None
+                    sem_t = sem_t.to(self.device, non_blocking=True)
+                    art_t = art_t.to(self.device, non_blocking=True)
+                    labels = labels.to(self.device, non_blocking=True)
+                    if sem_t.ndim == 4 or art_t.ndim >= 4:
+                        sem_t, art_t, extracted_npr = self.model.extract_features(
+                            sem_t, art_t, include_npr=npr_t is None
                         )
-                        feats = encode_fn(inputs)
-                feats_mixed, labels_soft = self._mix_features(feats, labels)
-                outputs = self.model.fc(feats_mixed.float())
-                loss = self.criterion(outputs, labels_soft.unsqueeze(1))
-            elif self.branch_features_cached:
-                outputs = self.model.fc(inputs.float())
-                loss = self.criterion(outputs, labels.unsqueeze(1).float())
+                        if npr_t is not None:
+                            with torch.no_grad():
+                                npr_t = self.model.npr.artifact_encoder(npr_t)
+                        else:
+                            npr_t = extracted_npr
+                    outputs = self.model.forward_features(sem_t, art_t, npr_t)
+                    loss = self.criterion(outputs, labels.unsqueeze(1).float())
             else:
-                outputs = self.model(inputs)
-                loss = self.criterion(outputs, labels.unsqueeze(1).float())
+                inputs, labels = batch_data
+                inputs = inputs.to(self.device, non_blocking=True)
+                labels = labels.to(self.device, non_blocking=True)
+                use_feat_interp = self.feat_interp and self.mode == "branch" and self.branch == "semantic"
+                if use_feat_interp:
+                    if self.branch_features_cached:
+                        feats = inputs
+                    else:
+                        with torch.no_grad():
+                            encode_fn = getattr(self.model.clip, "encode_image", None) or self.model.clip.get_image_features
+                            feats = encode_fn(inputs)
+                    feats_mixed, labels_soft = self._mix_features(feats, labels)
+                    outputs = self.model.fc(feats_mixed.float())
+                    loss = self.criterion(outputs, labels_soft.unsqueeze(1))
+                elif self.branch_features_cached:
+                    outputs = self.model.fc(inputs.float())
+                    loss = self.criterion(outputs, labels.unsqueeze(1).float())
+                else:
+                    outputs = self.model(inputs)
+                    loss = self.criterion(outputs, labels.unsqueeze(1).float())
 
-        # Lan truyền ngược
-        loss.backward()
-        # Cập nhật tham số mô hình
-        self.optimizer.step()
+        if step_events is not None:
+            step_events[1].record()
+        self.grad_scaler.scale(loss).backward()
+        self.grad_scaler.step(self.optimizer)
+        self.grad_scaler.update()
         if self.lr_scheduler is not None and self.lr_step_per_batch:
             self.lr_scheduler.step()
+        if step_events is not None:
+            step_events[2].record()
+        self._last_step_events = step_events
 
-        eval_loss = loss.item()
-        y_pred = outputs.sigmoid().flatten().tolist()
-        y_true = labels.tolist()
-        return eval_loss, y_pred, y_true
+        if not collect_metrics:
+            return None, None, None
+        return loss.item(), outputs.sigmoid().flatten().tolist(), labels.tolist()
+
+    def _profile_loader(self, dataset):
+        """Run a short, non-checkpointing throughput measurement on real batches."""
+        loader, _, _, _ = self._make_train_loader(dataset, epoch=0)
+        warmup = min(5, max(0, len(loader) - 1))
+        target = min(self.profile_batches, max(0, len(loader) - warmup))
+        if target == 0:
+            raise ValueError("--profile-batches needs a dataset with at least two batches")
+        iterator = iter(loader)
+        self.model.train()
+        for _ in range(warmup):
+            self.train_step(next(iterator))
+        if self.device.startswith("cuda"):
+            torch.cuda.synchronize(self.device)
+            torch.cuda.reset_peak_memory_stats(self.device)
+        data_wait = 0.0
+        samples = 0
+        event_samples = []
+        started = time.perf_counter()
+        for _ in range(target):
+            fetch_started = time.perf_counter()
+            batch_data = next(iterator)
+            data_wait += time.perf_counter() - fetch_started
+            samples += int(batch_data[-1].shape[0])
+            self.train_step(batch_data)
+            if self._last_step_events is not None:
+                event_samples.append(self._last_step_events)
+        if self.device.startswith("cuda"):
+            torch.cuda.synchronize(self.device)
+        elapsed = max(time.perf_counter() - started, 1e-9)
+        forward_ms = backward_ms = 0.0
+        for begin, forward_end, end in event_samples:
+            forward_ms += begin.elapsed_time(forward_end)
+            backward_ms += forward_end.elapsed_time(end)
+        peak_memory = (
+            torch.cuda.max_memory_allocated(self.device) / (1024 * 1024)
+            if self.device.startswith("cuda") else 0.0
+        )
+        result = (
+            f"[PROFILE] mode={self.mode} branch={self.branch} "
+            f"batch_size={self.batch_size} workers={self.num_workers} "
+            f"prefetch={self.prefetch_factor} precision={self.precision} "
+            f"samples={samples} samples_per_second={samples / elapsed:.2f} "
+            f"data_wait_s={data_wait:.2f} forward_s={forward_ms / 1000:.2f} "
+            f"backward_optimizer_s={backward_ms / 1000:.2f} "
+            f"wall_s={elapsed:.2f} peak_vram_mib={peak_memory:.0f}"
+        )
+        logger.info(result)
+        print(result, flush=True)
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG:
@@ -505,11 +594,15 @@ class Trainer:
             }
         return {"class": "step_decay", "step": "epoch", "gamma": 0.9, "interval": 10}
 
-    def _make_train_loader(self, dataset, epoch, indices=None, worker_seed_state=None):
+    def _make_train_loader(
+        self, dataset, epoch, indices=None, worker_seed_state=None, start_batch=0
+    ):
+        total_batches = (len(dataset) + self.batch_size - 1) // self.batch_size
         sampler = EpochShuffleSampler(
             dataset,
             seed=self.seed + epoch * 1_000_003,
             indices=indices,
+            start_index=start_batch * self.batch_size,
         )
         if len(sampler.indices) != len(dataset):
             raise ValueError(
@@ -521,15 +614,19 @@ class Trainer:
         else:
             worker_generator.set_state(torch.as_tensor(worker_seed_state))
         initial_worker_state = worker_generator.get_state().clone()
-        loader = torch.utils.data.DataLoader(
-            dataset,
+        loader_kwargs = dict(
+            dataset=dataset,
             batch_size=self.batch_size,
             sampler=sampler,
             num_workers=self.num_workers,
             pin_memory=self.device.startswith("cuda"),
             generator=worker_generator,
         )
-        return loader, sampler.indices, initial_worker_state
+        if self.num_workers:
+            loader_kwargs["prefetch_factor"] = self.prefetch_factor
+            loader_kwargs["persistent_workers"] = True
+        loader = torch.utils.data.DataLoader(**loader_kwargs)
+        return loader, sampler.indices, initial_worker_state, total_batches
 
     def _loader_state(self, epoch, batch_position, indices, worker_seed_state, batches):
         return {
@@ -567,6 +664,7 @@ class Trainer:
             models={"model": self.model},
             optimizers={"optimizer": self.optimizer},
             schedulers={"scheduler": self.lr_scheduler},
+            grad_scaler={"grad_scaler": self.grad_scaler},
             resume_epoch=epoch,
             batch_position=batch_position,
             global_step=self.global_step,
@@ -615,8 +713,16 @@ class Trainer:
             logger.info(
                 f"[RUNTIME] device={self.device} | python={platform.python_version()} | "
                 f"torch={torch.__version__} | cuda_available={torch.cuda.is_available()} | "
+                f"precision={self.precision} | workers={self.num_workers} | "
+                f"prefetch={self.prefetch_factor} | "
                 f"pid={os.getpid()}"
             )
+            if self.device.startswith("cuda"):
+                cuda_device = torch.device(self.device)
+                logger.info(
+                    f"[RUNTIME] gpu={torch.cuda.get_device_name(cuda_device)} | "
+                    f"memory={torch.cuda.get_device_properties(cuda_device).total_memory / (1024 ** 3):.1f} GiB"
+                )
             logger.info(
                 f"[MODEL] class={self.model.__class__.__name__} | "
                 f"architecture={self.architecture_id}"
@@ -681,26 +787,38 @@ class Trainer:
                     val_dataset = raw_val_dataset
                 else:
                     from detectors.sd_v1_4.feature_cache import (
+                        FeatureCacheInterrupted,
                         build_fusion_feature_cache,
                     )
 
                     cache_dir = os.path.join(model_dir, "features", self.cache_key)
-                    train_dataset = build_fusion_feature_cache(
-                        self.model,
-                        raw_train_dataset,
-                        cache_dir,
-                        "train",
-                        self.device,
-                        batch_size=self.batch_size,
+                    logger.info(
+                        f"[FEATURE CACHE] Building or loading fusion features from {cache_dir}"
                     )
-                    val_dataset = build_fusion_feature_cache(
-                        self.model,
-                        raw_val_dataset,
-                        cache_dir,
-                        "val",
-                        self.device,
-                        batch_size=self.batch_size,
+                    cache_controller = GracefulStopController(
+                        session_timeout_seconds=self.session_timeout_minutes * 60,
+                        pre_timeout_seconds=self.pre_timeout_minutes * 60,
                     )
+                    cache_controller.__enter__()
+                    try:
+                        train_dataset = build_fusion_feature_cache(
+                            self.model, raw_train_dataset, cache_dir, "train", self.device,
+                            batch_size=self.batch_size, num_workers=self.num_workers,
+                            precision=self.precision, prefetch_factor=self.prefetch_factor,
+                            should_stop=cache_controller.should_stop,
+                        )
+                        val_dataset = build_fusion_feature_cache(
+                            self.model, raw_val_dataset, cache_dir, "val", self.device,
+                            batch_size=self.batch_size, num_workers=self.num_workers,
+                            precision=self.precision, prefetch_factor=self.prefetch_factor,
+                            should_stop=cache_controller.should_stop,
+                        )
+                    except FeatureCacheInterrupted as exc:
+                        logger.info(f"[FEATURE CACHE] {exc}; rerun to resume.")
+                        print(f"[TRAIN] {exc}; rerun to resume.", flush=True)
+                        return
+                    finally:
+                        cache_controller.__exit__(None, None, None)
             else:
                 raw_train_dataset = TrainDataset(
                     train_dataset=self.train_dataset,
@@ -721,6 +839,7 @@ class Trainer:
                     and self.dir_name == "sd-v1_4"
                 ):
                     from detectors.sd_v1_4.feature_cache import (
+                        FeatureCacheInterrupted,
                         build_branch_feature_cache,
                     )
 
@@ -733,39 +852,49 @@ class Trainer:
                         f"[FEATURE CACHE] Building or loading {self.branch} "
                         f"features from {cache_dir}"
                     )
-                    train_dataset = build_branch_feature_cache(
-                        self.model,
-                        raw_train_dataset,
-                        cache_dir,
-                        "train",
-                        self.branch,
-                        self.device,
-                        batch_size=self.batch_size,
-                        num_workers=self.num_workers,
+                    cache_controller = GracefulStopController(
+                        session_timeout_seconds=self.session_timeout_minutes * 60,
+                        pre_timeout_seconds=self.pre_timeout_minutes * 60,
                     )
-                    val_dataset = build_branch_feature_cache(
-                        self.model,
-                        raw_val_dataset,
-                        cache_dir,
-                        "val",
-                        self.branch,
-                        self.device,
-                        batch_size=self.batch_size,
-                        num_workers=self.num_workers,
-                    )
+                    cache_controller.__enter__()
+                    try:
+                        train_dataset = build_branch_feature_cache(
+                            self.model, raw_train_dataset, cache_dir, "train",
+                            self.branch, self.device, batch_size=self.batch_size,
+                            num_workers=self.num_workers, precision=self.precision,
+                            prefetch_factor=self.prefetch_factor,
+                            should_stop=cache_controller.should_stop,
+                        )
+                        val_dataset = build_branch_feature_cache(
+                            self.model, raw_val_dataset, cache_dir, "val",
+                            self.branch, self.device, batch_size=self.batch_size,
+                            num_workers=self.num_workers, precision=self.precision,
+                            prefetch_factor=self.prefetch_factor,
+                            should_stop=cache_controller.should_stop,
+                        )
+                    except FeatureCacheInterrupted as exc:
+                        logger.info(f"[FEATURE CACHE] {exc}; rerun to resume.")
+                        print(f"[TRAIN] {exc}; rerun to resume.", flush=True)
+                        return
+                    finally:
+                        cache_controller.__exit__(None, None, None)
                     self.branch_features_cached = True
                 else:
                     train_dataset = raw_train_dataset
                     val_dataset = raw_val_dataset
 
-            first_loader, _, _ = self._make_train_loader(train_dataset, epoch=0)
-            val_loader = torch.utils.data.DataLoader(
-                val_dataset,
+            first_loader, _, _, _ = self._make_train_loader(train_dataset, epoch=0)
+            val_loader_kwargs = dict(
+                dataset=val_dataset,
                 batch_size=self.batch_size,
                 shuffle=False,
                 num_workers=self.num_workers,
                 pin_memory=self.device.startswith("cuda"),
             )
+            if self.num_workers:
+                val_loader_kwargs["prefetch_factor"] = self.prefetch_factor
+                val_loader_kwargs["persistent_workers"] = True
+            val_loader = torch.utils.data.DataLoader(**val_loader_kwargs)
 
             logger.info(
                 f"Train size {len(train_dataset)} | Val size {len(val_dataset)}"
@@ -787,6 +916,10 @@ class Trainer:
 
             self._build_scheduler(steps_per_epoch=len(first_loader))
             del first_loader
+
+            if self.profile_batches:
+                self._profile_loader(train_dataset)
+                return
 
             dataset_id = dataset_fingerprint(raw_train_dataset)
             experiment_id = self.experiment_id or (
@@ -823,6 +956,8 @@ class Trainer:
                     "branch_features_cached": self.branch_features_cached,
                     "early_stopping_patience": self.early_stopping_patience,
                     "num_workers": self.num_workers,
+                    "precision": self.precision,
+                    "prefetch_factor": self.prefetch_factor,
                     "steps_per_epoch": len(train_dataset) // self.batch_size
                     + int(len(train_dataset) % self.batch_size != 0),
                 },
@@ -848,6 +983,7 @@ class Trainer:
                 models={"model": self.model},
                 optimizers={"optimizer": self.optimizer},
                 schedulers={"scheduler": self.lr_scheduler},
+                grad_scaler={"grad_scaler": self.grad_scaler},
             )
             for message in resume.messages:
                 logger.info(f"[AUTO RESUME] {message}")
@@ -918,15 +1054,16 @@ class Trainer:
                         )
                         resume_loader_state = None
 
-                    train_loader, loader_indices, worker_state = (
+                    train_loader, loader_indices, worker_state, total_batches = (
                         self._make_train_loader(
                             train_dataset,
                             epoch=epoch,
                             indices=loader_indices,
                             worker_seed_state=worker_state,
+                            start_batch=skip_batches,
                         )
                     )
-                    if skip_batches > len(train_loader):
+                    if skip_batches > total_batches:
                         raise ValueError(
                             "Checkpoint batch position exceeds current DataLoader length"
                         )
@@ -935,7 +1072,7 @@ class Trainer:
                         skip_batches,
                         loader_indices,
                         worker_state,
-                        len(train_loader),
+                        total_batches,
                     )
                     best_metric = self._best_metric(
                         use_ap_checkpoint, best_ap, best_acc
@@ -952,13 +1089,19 @@ class Trainer:
                         status="CHECKPOINTED",
                     )
                     self.model.train()
-                    time_start = time.time()
-                    for step_id, batch_data in enumerate(train_loader):
-                        if step_id < skip_batches:
-                            # Replay only to advance deterministic worker RNG and
-                            # rebuild the loader position. No optimizer update is
-                            # performed, so resumed state is not applied twice.
-                            continue
+                    time_start = time.perf_counter()
+                    interval_data_wait = 0.0
+                    interval_samples = 0
+                    interval_events = []
+                    train_iterator = iter(train_loader)
+                    for step_id in range(skip_batches, total_batches):
+                        fetch_started = time.perf_counter()
+                        try:
+                            batch_data = next(train_iterator)
+                        except StopIteration:
+                            break
+                        interval_data_wait += time.perf_counter() - fetch_started
+                        interval_samples += int(batch_data[-1].shape[0])
                         if controller.should_stop():
                             interrupted = True
                             self._save_progress(
@@ -974,30 +1117,61 @@ class Trainer:
                                     step_id,
                                     loader_indices,
                                     worker_state,
-                                    len(train_loader),
+                                    total_batches,
                                 ),
                                 status=STATUS_INTERRUPTED,
                             )
                             break
 
-                        eval_loss, y_pred, y_true = self.train_step(batch_data)
+                        should_log = (step_id + 1) % self.log_interval_batches == 0
+                        eval_loss, y_pred, y_true = self.train_step(
+                            batch_data, collect_metrics=should_log
+                        )
                         self.global_step += 1
-                        ap, accuracy = evaluate(y_pred, y_true)
+                        if self._last_step_events is not None:
+                            interval_events.append(self._last_step_events)
 
-                        if (step_id + 1) % self.log_interval_batches == 0:
-                            time_end = time.time()
+                        if should_log:
+                            ap, accuracy = evaluate(y_pred, y_true)
+                            if self.device.startswith("cuda"):
+                                torch.cuda.synchronize(self.device)
+                            time_end = time.perf_counter()
+                            elapsed = max(time_end - time_start, 1e-9)
+                            samples_per_second = (
+                                interval_samples / elapsed
+                            )
+                            forward_seconds = sum(
+                                begin.elapsed_time(forward_end)
+                                for begin, forward_end, _ in interval_events
+                            ) / 1000
+                            backward_seconds = sum(
+                                forward_end.elapsed_time(end)
+                                for _, forward_end, end in interval_events
+                            ) / 1000
+                            peak_memory = (
+                                torch.cuda.max_memory_allocated(self.device)
+                                / (1024 * 1024)
+                                if self.device.startswith("cuda")
+                                else 0.0
+                            )
                             msg = (
                                 f"Epoch {epoch}/{self.epochs - 1} | "
-                                f"Batch {step_id + 1}/{len(train_loader)} | "
+                                f"Batch {step_id + 1}/{total_batches} | "
                                 f"Loss {eval_loss:.4f} | "
                                 f"AP {ap * 100:.2f}% | "
                                 f"Accuracy {accuracy * 100:.2f}% | "
                                 f"LR {self.optimizer.param_groups[0]['lr']:.2e} | "
-                                f"Time {time_end - time_start:.2f}s"
+                                f"Time {elapsed:.2f}s | data wait {interval_data_wait:.2f}s | "
+                                f"forward {forward_seconds:.2f}s | backward+opt {backward_seconds:.2f}s | "
+                                f"{samples_per_second:.1f} samples/s | "
+                                f"Peak VRAM {peak_memory:.0f} MiB"
                             )
                             logger.info(msg)
                             print(f"[TRAIN] {msg}", flush=True)
-                            time_start = time.time()
+                            time_start = time.perf_counter()
+                            interval_data_wait = 0.0
+                            interval_samples = 0
+                            interval_events = []
 
                         should_stop = controller.should_stop()
                         if manager.checkpoint_due() or should_stop:
@@ -1017,7 +1191,7 @@ class Trainer:
                                     step_id + 1,
                                     loader_indices,
                                     worker_state,
-                                    len(train_loader),
+                                    total_batches,
                                 ),
                                 status=(
                                     STATUS_INTERRUPTED
@@ -1038,7 +1212,12 @@ class Trainer:
                     self.model.eval()
                     y_pred, y_true = [], []
                     validation_interrupted = False
-                    with torch.no_grad():
+                    validation_started = time.perf_counter()
+                    with torch.inference_mode(), torch.autocast(
+                        device_type="cuda" if self.device.startswith("cuda") else "cpu",
+                        dtype=self._amp_dtype,
+                        enabled=self._amp_enabled,
+                    ):
                         for batch in val_loader:
                             if self.mode == "fusion":
                                 if len(batch) == 4:
@@ -1097,7 +1276,11 @@ class Trainer:
                                         .tolist()
                                     )
                                 else:
-                                    y_pred.extend(self.model.predict(images))
+                                    images = images.to(self.device, non_blocking=True)
+                                    logits = self.model(images)
+                                    y_pred.extend(
+                                        logits.sigmoid().flatten().cpu().tolist()
+                                    )
                                 y_true.extend(labels.tolist())
                             if controller.should_stop():
                                 validation_interrupted = True
@@ -1105,16 +1288,16 @@ class Trainer:
                                     manager,
                                     kind="checkpoint_recovery.pth",
                                     epoch=epoch,
-                                    batch_position=len(train_loader),
+                                    batch_position=total_batches,
                                     last_completed_epoch=last_completed_epoch,
                                     best_metric=best_metric,
                                     epochs_without_improvement=epochs_without_improvement,
                                     loader_state=self._loader_state(
                                         epoch,
-                                        len(train_loader),
+                                        total_batches,
                                         loader_indices,
                                         worker_state,
-                                        len(train_loader),
+                                        total_batches,
                                     ),
                                     status=STATUS_INTERRUPTED,
                                 )
@@ -1129,13 +1312,16 @@ class Trainer:
                         break
 
                     ap, accuracy = evaluate(y_pred, y_true)
+                    if self.device.startswith("cuda"):
+                        torch.cuda.synchronize(self.device)
+                    validation_seconds = time.perf_counter() - validation_started
                     eval_type = "Test" if self.mode == "branch" else "Total"
                     cur_lr = self.optimizer.param_groups[0]["lr"]
                     val_msg = (
                         f"Epoch {epoch}/{self.epochs - 1} | "
                         f"{eval_type} AP {ap * 100:.2f}% | "
                         f"{eval_type} Accuracy {accuracy * 100:.2f}% | "
-                        f"LR {cur_lr:.2e}"
+                        f"LR {cur_lr:.2e} | validation {validation_seconds:.2f}s"
                     )
                     logger.info(val_msg)
                     print(f"[VAL]   {val_msg}", flush=True)
@@ -1187,6 +1373,7 @@ class Trainer:
                         models={"model": self.model},
                         optimizers={"optimizer": self.optimizer},
                         schedulers={"scheduler": self.lr_scheduler},
+                        grad_scaler={"grad_scaler": self.grad_scaler},
                         resume_epoch=epoch + 1,
                         batch_position=0,
                         global_step=self.global_step,

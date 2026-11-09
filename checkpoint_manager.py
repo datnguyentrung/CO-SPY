@@ -84,6 +84,8 @@ def _resume_training_config(config: Any) -> dict[str, Any]:
         "cache_features",
         "branch_features_cached",
         "num_workers",
+        "precision",
+        "prefetch_factor",
     ):
         values.pop(key, None)
     return values

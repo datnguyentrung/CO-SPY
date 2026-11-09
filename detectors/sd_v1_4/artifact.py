@@ -28,7 +28,7 @@ import math
 import random
 
 import torch
-from diffusers import StableDiffusionPipeline
+from diffusers import AutoencoderKL
 from PIL import Image
 from torch import nn
 from torchvision import transforms
@@ -97,10 +97,11 @@ class ArtifactDetector(BaseDetector):
     def __init__(self, dim_artifact=512, num_classes=1):
         super().__init__()
 
-        # Tải mô hình VAE pretrained từ Stable Diffusion v1.4
+        # Chỉ tải VAE, tránh nạp text encoder/UNet không dùng khi train artifact.
         model_id = "CompVis/stable-diffusion-v1-4"
-        vae = StableDiffusionPipeline.from_pretrained(model_id).vae
+        vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae")
         vae.requires_grad_(False)  # Đóng băng VAE
+        vae.eval()
         self.artifact_encoder = VAEReconEncoder(vae)
 
         # Lớp phân loại tuyến tính (Linear Classifier)
@@ -324,6 +325,12 @@ class VAEReconEncoder(nn.Module):
             latent = self.vae.encode(x).latent_dist.mean
             decoded = self.vae.decode(latent).sample
         return decoded
+
+    def train(self, mode: bool = True):
+        """Keep the frozen VAE deterministic while its ResNet head trains."""
+        super().train(mode)
+        self.vae.eval()
+        return self
 
     # -------------------------------------------------------------------------
     # CHỨC NĂNG: Lan truyền xuôi trích xuất đặc trưng khiếm khuyết điểm ảnh

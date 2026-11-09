@@ -53,7 +53,8 @@ python main.py \
     --mode branch \
     --branch artifact \
     --train_dataset "$dataset" \
-    --epochs 10
+    --epochs 5 \
+    --early-stopping-patience 2
 
 # Semantic branch training (feature interpolation is only applied for sd-v1_4)
 semantic_extra=""
@@ -67,7 +68,8 @@ python main.py \
     --mode branch \
     --branch semantic \
     --train_dataset "$dataset" \
-    --epochs 10 \
+    --epochs 5 \
+    --early-stopping-patience 2 \
     $semantic_extra
 
 # Optional NPR branch used by fusion v3.
@@ -79,7 +81,8 @@ if [[ "$use_npr" == "1" || "$fusion_head" == "v3" || "$fusion_head" == "v3_npr" 
         --mode branch \
         --branch npr \
         --train_dataset "$dataset" \
-        --epochs 10
+        --epochs 5 \
+        --early-stopping-patience 2
     npr_args="--npr"
 fi
 

@@ -3,10 +3,10 @@
 Tài liệu này khớp với pipeline hiện tại:
 
 - Full-state checkpoint và auto-resume.
-- Early stopping mặc định sau 5 epoch không cải thiện.
+- Lịch Kaggle mặc định: tối đa 5 epoch, early stopping sau 2 epoch không cải thiện.
 - Branch và adaptive fusion theo dõi validation AP.
 - Semantic branch cache CLIP feature một lần.
-- Fusion v2/v3 cache đặc trưng của các branch.
+- Fusion v3 cache đặc trưng của các branch, có partial cache để tiếp tục sau timeout.
 - `print(..., flush=True)` trong `train.py` hiển thị ngay trên Kaggle terminal.
 
 Luôn chạy lệnh từ thư mục gốc repository:
@@ -222,8 +222,9 @@ ngay trên Kaggle và đồng thời lưu vào file bằng `tee -a`.
 
 ### Cell 4A: Train Song Song Trên T4 x 2
 
-GPU 0 chạy Artifact, GPU 1 chạy Semantic. Cả hai dùng tối đa 10 epoch và dừng
-sớm sau 5 epoch không tăng AP.
+GPU 0 chạy Artifact, GPU 1 chạy Semantic. Notebook trước đó chạy benchmark ngắn
+FP32/AMP và hai cấu hình batch/worker, rồi chọn cấu hình có ảnh/giây cao nhất;
+cả hai dùng tối đa 5 epoch và dừng sớm sau 2 epoch không tăng AP.
 
 ```bash
 %%bash
@@ -248,8 +249,8 @@ run_job ART train_artifact.log main.py \
     --mode branch \
     --branch artifact \
     --train_dataset sd-v1_4 \
-    --epochs 10 \
-    --early-stopping-patience 5 &
+    --epochs 5 \
+    --early-stopping-patience 2 &
 PID_ART=$!
 
 run_job SEM train_semantic.log main.py \
@@ -258,8 +259,8 @@ run_job SEM train_semantic.log main.py \
     --mode branch \
     --branch semantic \
     --train_dataset sd-v1_4 \
-    --epochs 10 \
-    --early-stopping-patience 5 \
+    --epochs 5 \
+    --early-stopping-patience 2 \
     --feat_interp &
 PID_SEM=$!
 
@@ -292,8 +293,8 @@ PYTHONUNBUFFERED=1 python -u main.py \
     --mode branch \
     --branch artifact \
     --train_dataset sd-v1_4 \
-    --epochs 10 \
-    --early-stopping-patience 5 \
+    --epochs 5 \
+    --early-stopping-patience 2 \
     2>&1 | tee -a train_artifact.log
 ```
 
@@ -313,8 +314,8 @@ PYTHONUNBUFFERED=1 python -u main.py \
     --mode branch \
     --branch semantic \
     --train_dataset sd-v1_4 \
-    --epochs 10 \
-    --early-stopping-patience 5 \
+    --epochs 5 \
+    --early-stopping-patience 2 \
     --feat_interp \
     2>&1 | tee -a train_semantic.log
 ```
@@ -349,9 +350,11 @@ PYTHONUNBUFFERED=1 python -u main.py \
     2>&1 | tee -a train_npr.log
 ```
 
-### Cell 6: Adaptive Fusion
+### Cell 6: Fusion v3 (đầu ra cuối)
 
-Fusion v2 cần `checkpoint_best.pth` của Artifact và Semantic:
+`Run All` không train Fusion v2. Sau Artifact, Semantic và NPR, chỉ Fusion v3
+được train; cache của Fusion v3 có thể tiếp tục từ offset đã ghi nếu phiên
+Kaggle hết giờ.
 
 ```bash
 %%bash
@@ -423,8 +426,10 @@ Tắt early stopping:
 
 ## 5. Resume Trên Kaggle Version Mới
 
-Trainer tự tìm `checkpoint_latest.pth` và `checkpoint_recovery.pth` dưới
-`/kaggle/working` và `/kaggle/input`.
+`tests/kaggle_train.ipynb` tự copy toàn bộ thư mục `ckpt` (bao gồm semantic
+feature cache và partial cache) từ Output đã gắn ở `/kaggle/input` về working
+directory trước khi gọi Trainer. Nó cũng tự giải nén `cospy_resume_bundle.zip`
+nếu Output cũ chỉ có bundle này.
 
 Quy trình:
 
@@ -432,7 +437,7 @@ Quy trình:
 2. Bấm **Save Version** để lưu output.
 3. Tạo Version mới.
 4. Add output của Version trước trong **Add Input**.
-5. Chạy lại đúng cell train.
+5. Import lại chính notebook và bấm **Run All** — không cần sửa lệnh hay đường dẫn.
 
 Ví dụ Artifact resume với log trực tiếp:
 
@@ -447,8 +452,8 @@ PYTHONUNBUFFERED=1 python -u main.py \
     --mode branch \
     --branch artifact \
     --train_dataset sd-v1_4 \
-    --epochs 10 \
-    --early-stopping-patience 5 \
+    --epochs 5 \
+    --early-stopping-patience 2 \
     --resume-mode auto \
     2>&1 | tee -a train_artifact_resume.log
 ```

@@ -80,8 +80,11 @@ def main(args):
             session_timeout_minutes=args.session_timeout_minutes,
             pre_timeout_minutes=args.pre_timeout_minutes,
             num_workers=args.num_workers,
+            precision=args.precision,
+            prefetch_factor=args.prefetch_factor,
             log_interval_batches=args.log_interval_batches,
             early_stopping_patience=args.early_stopping_patience,
+            profile_batches=args.profile_batches,
         )
         # Bắt đầu quá trình huấn luyện
         trainer.train()
@@ -168,7 +171,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--ckpt", type=str, default="ckpt", help="Checkpoint directory")
     parser.add_argument(
-        "--epochs", type=int, default=10, help="Number of training epochs"
+        "--epochs", type=int, default=5, help="Number of training epochs"
     )
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument("--seed", type=int, default=1024, help="Random seed")
@@ -314,15 +317,37 @@ if __name__ == "__main__":
         help="DataLoader worker count.",
     )
     parser.add_argument(
+        "--precision",
+        choices=["auto", "fp32", "fp16", "bf16"],
+        default="auto",
+        help="Training precision. auto uses fp16 on CUDA and fp32 on CPU.",
+    )
+    parser.add_argument(
+        "--prefetch-factor",
+        type=int,
+        default=2,
+        help="Batches prefetched by each DataLoader worker.",
+    )
+    parser.add_argument(
         "--log-interval-batches",
         type=int,
         default=100,
         help="Write batch progress to the log every N batches.",
     )
     parser.add_argument(
+        "--profile-batches",
+        type=int,
+        default=0,
+        help=(
+            "Run this many measured training batches after warmup, print throughput "
+            "and exit without validation or checkpoints. Use with --no-cache-features "
+            "to measure frozen encoder/cache creation."
+        ),
+    )
+    parser.add_argument(
         "--early-stopping-patience",
         type=int,
-        default=5,
+        default=2,
         help=(
             "Stop after N validation epochs without improvement in the "
             "selected metric. Branch runs monitor AP; set 0 to disable."

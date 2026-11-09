@@ -288,6 +288,18 @@ bash train.sh --gpu 2 --dataset progan
 The trained models are saved to `ckpt/<train_dataset>/fusion` for v1 and
 `ckpt/<train_dataset>/fusion_v2` for the recommended adaptive head.
 
+For CUDA training, `--precision auto` uses FP16 mixed precision. The default
+branch schedule is 5 epochs with patience 2; semantic feature caches resume
+from their last saved offset after an interrupted Kaggle session.
+
+`tests/kaggle_train.ipynb` is the reproducible Kaggle entry point: its Run All
+flow measures short FP32/AMP batch/worker candidates, then runs **Artifact +
+Semantic** in parallel, followed by **NPR** and **Fusion v3** only. It packages
+checkpoints and partial/complete feature caches in `cospy_resume_bundle.zip`;
+attach the previous version's Output as an Input and rerun unchanged to resume.
+The notebook refuses to use an older GitHub checkout rather than silently
+running code without the resume/AMP implementation.
+
 #### Adaptive fusion v2/v3
 
 `fusion_head=v1` is the released two-logit calibration head and remains the
