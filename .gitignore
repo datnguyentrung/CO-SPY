@@ -1,3 +1,4 @@
+.codegraph/
 __pycache__/
 ckpt*/
 data/test/AIGCDetectionBenchMark/test
