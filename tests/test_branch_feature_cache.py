@@ -139,6 +139,8 @@ class BranchFeatureCacheTests(unittest.TestCase):
             self.assertEqual(model.encode_calls, 3)
             self.assertEqual(len(cached), len(dataset))
             self.assertFalse((Path(temp) / "train_semantic.progress.json").exists())
+            del cached
+            gc.collect()
 
 
 if __name__ == "__main__":

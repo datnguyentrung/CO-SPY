@@ -15,7 +15,9 @@ class AdaptiveFusionHead(nn.Module):
 
     Each input stream is independently normalized and multiplied by a learned
     scalar regulator. During training, a whole stream can be dropped so the
-    classifier cannot rely on only one shortcut.
+    classifier cannot rely on only one shortcut. The stream masks are exposed
+    so callers can apply auxiliary predictions, such as the trained semantic
+    probe logit, with the same dropout semantics.
     """
 
     def __init__(
@@ -48,24 +50,44 @@ class AdaptiveFusionHead(nn.Module):
             nn.init.zeros_(regulator.bias)
 
     def _apply_branch_dropout(
-        self, feats: Sequence[torch.Tensor]
-    ) -> Sequence[torch.Tensor]:
+        self,
+        feats: Sequence[torch.Tensor],
+        return_masks: bool = False,
+    ):
         if not self.training or self.branch_dropout <= 0.0:
+            if return_masks:
+                masks = torch.ones(
+                    (feats[0].shape[0], len(feats)),
+                    device=feats[0].device,
+                    dtype=feats[0].dtype,
+                )
+                return feats, masks
             return feats
 
         batch_size = feats[0].shape[0]
         drop = torch.rand(batch_size, device=feats[0].device) < self.branch_dropout
         if not bool(drop.any()):
+            if return_masks:
+                masks = torch.ones(
+                    (batch_size, len(feats)),
+                    device=feats[0].device,
+                    dtype=feats[0].dtype,
+                )
+                return feats, masks
             return feats
 
         stream_ids = torch.randint(
             len(feats), (batch_size,), device=feats[0].device
         )
         kept = []
+        masks = []
         for stream_id, feat in enumerate(feats):
             drop_stream = torch.logical_and(drop, stream_ids == stream_id)
             keep_mask = torch.logical_not(drop_stream).to(feat.dtype)
             kept.append(feat * keep_mask.unsqueeze(1))
+            masks.append(keep_mask.unsqueeze(1))
+        if return_masks:
+            return kept, torch.cat(masks, dim=1)
         return kept
 
     def forward_streams(
@@ -93,7 +115,9 @@ class AdaptiveFusionHead(nn.Module):
             regulated.append(normed * coefficient)
             coefficients.append(coefficient)
 
-        regulated = self._apply_branch_dropout(regulated)
+        regulated, stream_masks = self._apply_branch_dropout(
+            regulated, return_masks=True
+        )
         fused = torch.cat(regulated, dim=1)
         logits = self.classifier(self.dropout(fused))
 
@@ -101,6 +125,7 @@ class AdaptiveFusionHead(nn.Module):
             info: Dict[str, torch.Tensor] = {
                 "features": fused,
                 "coefficients": torch.cat(coefficients, dim=1),
+                "stream_masks": stream_masks,
             }
             return logits, info
         return logits

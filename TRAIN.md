@@ -393,6 +393,9 @@ PYTHONUNBUFFERED=1 python -u main.py \
 ```
 
 Fusion v2/v3 tự cache đặc trưng branch. Cache được tái sử dụng khi resume.
+Adaptive fusion cũng dùng logit `sem.fc` đã train như một residual được điều
+khiển bởi regulator/dropout của nhánh semantic. Cần train lại fusion v2/v3 nếu
+checkpoint được tạo trước thay đổi này.
 
 ---
 

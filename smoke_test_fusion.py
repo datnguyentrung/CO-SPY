@@ -26,8 +26,11 @@ def main():
     assert torch.isfinite(train_logits).all()
 
     regulated = [head.norms[0](sem), head.norms[1](art)]
-    kept = head._apply_branch_dropout(regulated)
+    kept, stream_masks = head._apply_branch_dropout(
+        regulated, return_masks=True
+    )
     assert not torch.any((kept[0].abs().sum(1) == 0) & (kept[1].abs().sum(1) == 0))
+    assert stream_masks.shape == (64, 2)
 
     head.eval()
     first = head(sem, art)

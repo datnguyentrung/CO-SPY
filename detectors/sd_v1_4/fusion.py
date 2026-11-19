@@ -104,7 +104,8 @@ class CoSpyFusionDetector(BaseDetector):
     """Fuse frozen CO-SPY feature streams.
 
     v1 preserves the released two-logit checkpoint format. v2 learns regulators
-    over the full semantic/artifact features. v3 adds an optional NPR stream.
+    over the full semantic/artifact features, with the trained semantic probe
+    logit as a residual prior. v3 adds an optional NPR stream.
     """
 
     def __init__(
@@ -117,6 +118,8 @@ class CoSpyFusionDetector(BaseDetector):
         branch_dropout: float = 0.15,
         artifact_views: int = 1,
         semantic_downscale_prob: float = 0.0,
+        semantic_pretrained_weights_path: Optional[str] = None,
+        semantic_pretrained_cache_dir: Optional[str] = None,
     ):
         super().__init__()
         if fusion_version not in {"v1", "v2", "v3", "v3_npr"}:
@@ -126,7 +129,11 @@ class CoSpyFusionDetector(BaseDetector):
         self.artifact_views = artifact_views
         self.branch_dropout = branch_dropout
 
-        self.sem = SemanticDetector(downscale_prob=semantic_downscale_prob)
+        self.sem = SemanticDetector(
+            downscale_prob=semantic_downscale_prob,
+            pretrained_weights_path=semantic_pretrained_weights_path,
+            pretrained_cache_dir=semantic_pretrained_cache_dir,
+        )
         self.sem.load_weights(semantic_weights_path)
         self.art = ArtifactDetector()
         self.art.load_weights(artifact_weights_path)
@@ -224,12 +231,15 @@ class CoSpyFusionDetector(BaseDetector):
     def _prepare_artifact_views(x_art: torch.Tensor) -> torch.Tensor:
         if x_art.ndim == 2:
             return x_art.unsqueeze(1)
+        if x_art.ndim == 3:
+            # Extracted adaptive-fusion features are (batch, views, features).
+            return x_art
         if x_art.ndim == 4:
             return x_art.unsqueeze(1)
         if x_art.ndim == 5:
             return x_art
         raise ValueError(
-            f"Artifact views/features must be 2-D, 4-D, or 5-D, "
+            f"Artifact views/features must be 2-D, 3-D, 4-D, or 5-D, "
             f"got {tuple(x_art.shape)}"
         )
 
@@ -270,6 +280,7 @@ class CoSpyFusionDetector(BaseDetector):
         sem_feat = sem_feat.float()
         art_feat = art_feat.float()
         npr_feat = npr_feat.float() if npr_feat is not None else None
+        sem_logit = self.sem.fc(sem_feat)
 
         view_logits = []
         last_fused = None
@@ -282,7 +293,13 @@ class CoSpyFusionDetector(BaseDetector):
             logits, info = self.fusion_head.forward_streams(
                 streams, return_info=True
             )
-            view_logits.append(logits)
+            # Keep the trained semantic probe in the final decision, while
+            # using the adaptive regulator/dropout mask learned for its stream.
+            semantic_gate = (
+                info["coefficients"][:, 0:1]
+                * info["stream_masks"][:, 0:1]
+            )
+            view_logits.append(logits + semantic_gate * sem_logit)
             last_fused = info["features"]
         out = torch.stack(view_logits, dim=1).mean(dim=1)
         if return_feat:

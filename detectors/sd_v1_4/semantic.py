@@ -18,7 +18,9 @@ DANH SÁCH CÁC PHƯƠNG THỨC / HÀM TRONG FILE:
 =============================================================================
 """
 
+import os
 import random
+from typing import Optional
 
 import open_clip
 import torch
@@ -66,16 +68,23 @@ class SemanticDetector(BaseDetector):
     #   - Đối tượng SemanticDetector đã sẵn sàng huấn luyện hoặc đánh giá.
     # -------------------------------------------------------------------------
     def __init__(
-        self, dim_clip=1152, num_classes=1, downscale_prob: float = 0.0
+        self,
+        dim_clip=1152,
+        num_classes=1,
+        downscale_prob: float = 0.0,
+        pretrained_weights_path: Optional[str] = None,
+        pretrained_cache_dir: Optional[str] = None,
     ):
         super().__init__()
 
         # Tải mô hình OpenCLIP pretrained (SigLIP ViT-SO400M-14, resolution 384x384)
         model_name = "ViT-SO400M-14-SigLIP-384"
-        version = "webli"
+        version = pretrained_weights_path or "webli"
         self.clip = open_clip.CLIP
         self.clip, _, _ = open_clip.create_model_and_transforms(
-            model_name, pretrained=version
+            model_name,
+            pretrained=version,
+            cache_dir=pretrained_cache_dir or os.environ.get("CO_SPY_OPENCLIP_CACHE"),
         )
 
         # Đóng băng visual encoder của CLIP, không tính toán gradient để tiết kiệm VRAM và giữ nguyên tri thức

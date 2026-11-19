@@ -83,3 +83,4 @@ tmp/
 *.swp
 *.swo
 *~
+.model-cache**

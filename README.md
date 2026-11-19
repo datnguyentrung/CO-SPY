@@ -322,6 +322,12 @@ with unchanged branch checkpoints and preprocessing reuse the cache. Use
 `--no-cache-features` only for debugging. Checkpoints are saved to
 `ckpt/sd-v1_4/fusion_v2`.
 
+Adaptive fusion uses both the frozen semantic CLIP feature and the logit from
+the trained semantic `fc` probe. The probe logit is added as a residual,
+gated by the semantic regulator and the same branch-dropout mask. Retrain v2/v3
+fusion after upgrading older code: legacy fusion checkpoints still load, but
+their calibration predates this semantic residual.
+
 Use AIGCDetectBenchMark as the development set and keep Co-Spy-Bench untouched
 until final evaluation:
 
