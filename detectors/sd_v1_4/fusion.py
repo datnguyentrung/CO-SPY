@@ -152,7 +152,9 @@ class CoSpyFusionDetector(BaseDetector):
                 param.requires_grad = False
 
         self.fc = torch.nn.Linear(2, num_classes)
-        feature_dims = [self.sem.fc.in_features, self.art.fc.in_features]
+        # Semantic stream contains the frozen CLIP embedding plus the
+        # already-trained semantic classifier logit.
+        feature_dims = [self.sem.fc.in_features + self.sem.fc.out_features, self.art.fc.in_features]
         if self.npr is not None:
             feature_dims.append(self.npr.fc.in_features)
         self.fusion_head = (
@@ -254,7 +256,13 @@ class CoSpyFusionDetector(BaseDetector):
 
         batch_size, num_views = x_art.shape[:2]
         with torch.no_grad():
-            sem_feat = self.sem.clip.encode_image(x_sem)
+            # Preserve the raw CLIP representation while also exposing the
+            # trained semantic classifier's score to adaptive fusion.  The
+            # semantic branch is frozen here, but its trained fc layer is now
+            # part of the feature path used by v2/v3 fusion.
+            sem_embedding = self.sem.clip.encode_image(x_sem)
+            sem_logit = self.sem.fc(sem_embedding)
+            sem_feat = torch.cat([sem_embedding, sem_logit], dim=1)
             flat_art = x_art.reshape(
                 batch_size * num_views, *x_art.shape[2:]
             )
