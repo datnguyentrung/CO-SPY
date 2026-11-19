@@ -86,7 +86,7 @@ def build_fusion_feature_cache(
     expected_metadata = {
         "length": len(dataset),
         "fusion_version": model.fusion_version,
-        "semantic_dim": model.sem.fc.in_features,
+        "semantic_dim": model.sem.fc.in_features + model.sem.fc.out_features,
         "artifact_dim": model.art.fc.in_features,
         "npr_dim": model.npr.fc.in_features if has_npr else None,
         "dataset_fingerprint": dataset_id,
@@ -142,7 +142,10 @@ def build_fusion_feature_cache(
             if has_npr else None
         )
     else:
-        sem_cache = _open_memmap(partial_paths["sem"], (len(dataset), model.sem.fc.in_features))
+        sem_cache = _open_memmap(
+            partial_paths["sem"],
+            (len(dataset), model.sem.fc.in_features + model.sem.fc.out_features),
+        )
         art_cache = _open_memmap(partial_paths["art"], (len(dataset), model.art.fc.in_features))
         labels = _open_memmap(partial_paths["labels"], (len(dataset),), dtype=np.int8)
         npr_cache = (
