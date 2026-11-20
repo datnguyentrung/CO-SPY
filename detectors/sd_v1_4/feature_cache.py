@@ -29,8 +29,9 @@ def _atomic_json_save(path: str, payload: dict) -> None:
     os.replace(temporary, path)
 
 
-def _cache_loader(dataset, *, batch_size, num_workers, device, start_offset=0,
-                  prefetch_factor=2):
+def _cache_loader(
+    dataset, *, batch_size, num_workers, device, start_offset=0, prefetch_factor=2
+):
     """Build only the unfinished part of a sequential cache pass."""
     remaining = torch.utils.data.Subset(dataset, range(start_offset, len(dataset)))
     kwargs = {
@@ -56,6 +57,15 @@ def _open_memmap(path: str, shape, dtype=np.float16):
         dtype=dtype,
         shape=tuple(shape),
     )
+
+
+def _load_array_to_ram(path: str) -> np.ndarray:
+    """Load a complete .npy array into RAM.
+
+    Fusion feature caches are small enough for the Kaggle session used here.
+    Loading them once avoids repeated mmap page faults and /kaggle/input I/O.
+    """
+    return np.ascontiguousarray(np.load(path, allow_pickle=False))
 
 
 def build_fusion_feature_cache(
@@ -93,6 +103,112 @@ def build_fusion_feature_cache(
         "architecture_id": architecture_id,
         "dtype": "float16",
     }
+    # Optional external completed-cache recovery for Kaggle.
+    # Reuse a cache stored under /kaggle/input even when the runtime cache key
+    # differs or the raw image dataset is absent.
+    external_cache_dir = os.environ.get("CO_SPY_FUSION_CACHE_SOURCE")
+    if external_cache_dir and not force:
+        ext_sem_path = os.path.join(external_cache_dir, f"{split}_sem.npy")
+        ext_art_path = os.path.join(external_cache_dir, f"{split}_art.npy")
+        ext_npr_path = os.path.join(external_cache_dir, f"{split}_npr.npy")
+        ext_label_path = os.path.join(external_cache_dir, f"{split}_labels.npy")
+        ext_metadata_path = os.path.join(external_cache_dir, f"{split}_metadata.json")
+
+        ext_required = [
+            ext_sem_path,
+            ext_art_path,
+            ext_label_path,
+            ext_metadata_path,
+        ]
+        if has_npr:
+            ext_required.append(ext_npr_path)
+
+        if all(os.path.exists(path) for path in ext_required):
+            with open(ext_metadata_path, "r", encoding="utf-8") as handle:
+                ext_metadata = json.load(handle)
+
+            model_compatible = all(
+                ext_metadata.get(key) == expected_metadata[key]
+                for key in (
+                    "fusion_version",
+                    "semantic_dim",
+                    "artifact_dim",
+                    "npr_dim",
+                )
+            )
+            architecture_compatible = (
+                ext_metadata.get("architecture_id") == architecture_id
+            )
+
+            ext_len = int(ext_metadata.get("length", 0))
+            arrays_compatible = False
+
+            try:
+                # Validation uses mmap so we do not duplicate memory before
+                # compatibility is known. The actual returned arrays are RAM.
+                sem_probe = np.load(ext_sem_path, mmap_mode="r")
+                art_probe = np.load(ext_art_path, mmap_mode="r")
+                label_probe = np.load(ext_label_path, mmap_mode="r")
+                npr_probe = np.load(ext_npr_path, mmap_mode="r") if has_npr else None
+
+                arrays_compatible = (
+                    ext_len > 0
+                    and sem_probe.shape == (ext_len, expected_metadata["semantic_dim"])
+                    and art_probe.shape == (ext_len, expected_metadata["artifact_dim"])
+                    and label_probe.shape == (ext_len,)
+                    and sem_probe.dtype == np.float16
+                    and art_probe.dtype == np.float16
+                    and label_probe.dtype == np.int8
+                    and (
+                        not has_npr
+                        or (
+                            npr_probe.shape == (ext_len, expected_metadata["npr_dim"])
+                            and npr_probe.dtype == np.float16
+                        )
+                    )
+                )
+            except Exception:
+                arrays_compatible = False
+
+            live_dataset_available = len(dataset) > 0 and dataset_id not in (
+                None,
+                "",
+                "unknown",
+            )
+
+            if live_dataset_available:
+                dataset_compatible = (
+                    ext_metadata.get("length") == len(dataset)
+                    and ext_metadata.get("dataset_fingerprint") == dataset_id
+                )
+            else:
+                # Cache-only recovery: raw images are intentionally absent.
+                dataset_compatible = arrays_compatible
+
+            if (
+                model_compatible
+                and architecture_compatible
+                and arrays_compatible
+                and dataset_compatible
+            ):
+                print(
+                    f"[FEATURE CACHE] Loading external {split} cache into RAM "
+                    f"from {external_cache_dir}",
+                    flush=True,
+                )
+                return FusionFeatureDataset(
+                    _load_array_to_ram(ext_sem_path),
+                    _load_array_to_ram(ext_art_path),
+                    _load_array_to_ram(ext_label_path),
+                    (_load_array_to_ram(ext_npr_path) if has_npr else None),
+                )
+
+            raise RuntimeError(
+                "External fusion cache exists but failed validation. "
+                f"split={split} live_dataset={live_dataset_available} "
+                f"expected={expected_metadata} actual={ext_metadata}"
+            )
+
     required = [sem_path, art_path, label_path, metadata_path]
     if has_npr:
         required.append(npr_path)
@@ -101,7 +217,13 @@ def build_fusion_feature_cache(
             metadata = json.load(handle)
         # Old complete caches without fingerprints remain readable; new caches
         # additionally reject stale data after a dataset/model change.
-        legacy_keys = ("length", "fusion_version", "semantic_dim", "artifact_dim", "npr_dim")
+        legacy_keys = (
+            "length",
+            "fusion_version",
+            "semantic_dim",
+            "artifact_dim",
+            "npr_dim",
+        )
         if all(metadata.get(key) == expected_metadata[key] for key in legacy_keys) and (
             "dataset_fingerprint" not in metadata
             or (
@@ -110,10 +232,10 @@ def build_fusion_feature_cache(
             )
         ):
             return FusionFeatureDataset(
-                np.load(sem_path, mmap_mode="r"),
-                np.load(art_path, mmap_mode="r"),
-                np.load(label_path, mmap_mode="r"),
-                np.load(npr_path, mmap_mode="r") if has_npr else None,
+                _load_array_to_ram(sem_path),
+                _load_array_to_ram(art_path),
+                _load_array_to_ram(label_path),
+                _load_array_to_ram(npr_path) if has_npr else None,
             )
 
     partial_paths = {
@@ -125,11 +247,15 @@ def build_fusion_feature_cache(
         partial_paths["npr"] = f"{npr_path}.partial"
     progress_path = os.path.join(cache_dir, f"{split}_fusion.progress.json")
     offset = 0
-    if not force and all(os.path.exists(path) for path in (*partial_paths.values(), progress_path)):
+    if not force and all(
+        os.path.exists(path) for path in (*partial_paths.values(), progress_path)
+    ):
         try:
             with open(progress_path, "r", encoding="utf-8") as handle:
                 progress = json.load(handle)
-            if all(progress.get(key) == value for key, value in expected_metadata.items()):
+            if all(
+                progress.get(key) == value for key, value in expected_metadata.items()
+            ):
                 offset = max(0, min(int(progress.get("offset", 0)), len(dataset)))
         except (OSError, ValueError, TypeError):
             offset = 0
@@ -139,38 +265,53 @@ def build_fusion_feature_cache(
         labels = np.lib.format.open_memmap(partial_paths["labels"], mode="r+")
         npr_cache = (
             np.lib.format.open_memmap(partial_paths["npr"], mode="r+")
-            if has_npr else None
+            if has_npr
+            else None
         )
     else:
         sem_cache = _open_memmap(
             partial_paths["sem"],
             (len(dataset), model.sem.fc.in_features + model.sem.fc.out_features),
         )
-        art_cache = _open_memmap(partial_paths["art"], (len(dataset), model.art.fc.in_features))
+        art_cache = _open_memmap(
+            partial_paths["art"], (len(dataset), model.art.fc.in_features)
+        )
         labels = _open_memmap(partial_paths["labels"], (len(dataset),), dtype=np.int8)
         npr_cache = (
             _open_memmap(partial_paths["npr"], (len(dataset), model.npr.fc.in_features))
-            if has_npr else None
+            if has_npr
+            else None
         )
 
     model.eval()
     loader = _cache_loader(
-        dataset, batch_size=batch_size, num_workers=num_workers, device=device,
-        start_offset=offset, prefetch_factor=prefetch_factor,
+        dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        device=device,
+        start_offset=offset,
+        prefetch_factor=prefetch_factor,
     )
     device_type = "cuda" if device.startswith("cuda") else "cpu"
     amp_enabled = device_type == "cuda" and precision in {"fp16", "bf16"}
     amp_dtype = torch.float16 if precision == "fp16" else torch.bfloat16
     started = time.perf_counter()
-    for batch_index, batch in enumerate(tqdm(
-        loader, desc=f"Caching fusion features ({split})", initial=offset // batch_size,
-        total=(len(dataset) + batch_size - 1) // batch_size,
-    )):
+    for batch_index, batch in enumerate(
+        tqdm(
+            loader,
+            desc=f"Caching fusion features ({split})",
+            initial=offset // batch_size,
+            total=(len(dataset) + batch_size - 1) // batch_size,
+        )
+    ):
         sem_images = batch[0].to(device, non_blocking=True)
         art_images = batch[1].to(device, non_blocking=True)
         batch_labels = batch[-1]
-        with torch.inference_mode(), torch.autocast(
-            device_type=device_type, dtype=amp_dtype, enabled=amp_enabled
+        with (
+            torch.inference_mode(),
+            torch.autocast(
+                device_type=device_type, dtype=amp_dtype, enabled=amp_enabled
+            ),
         ):
             sem_feat, art_feat, npr_feat = model.extract_features(
                 sem_images,
@@ -207,9 +348,7 @@ def build_fusion_feature_cache(
             )
 
     if offset != len(dataset):
-        raise RuntimeError(
-            f"Feature cache wrote {offset} of {len(dataset)} samples"
-        )
+        raise RuntimeError(f"Feature cache wrote {offset} of {len(dataset)} samples")
 
     sem_cache.flush()
     art_cache.flush()
@@ -226,7 +365,8 @@ def build_fusion_feature_cache(
     elapsed = max(time.perf_counter() - started, 1e-9)
     print(
         f"[FEATURE CACHE] fusion {split}: {len(dataset) / elapsed:.1f} samples/s | "
-        f"{elapsed:.1f}s | precision={precision}", flush=True,
+        f"{elapsed:.1f}s | precision={precision}",
+        flush=True,
     )
     base = getattr(dataset, "base", None)
     if base is not None and hasattr(base, "total_list"):
@@ -241,10 +381,10 @@ def build_fusion_feature_cache(
                 handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     return FusionFeatureDataset(
-        np.load(sem_path, mmap_mode="r"),
-        np.load(art_path, mmap_mode="r"),
-        np.load(label_path, mmap_mode="r"),
-        np.load(npr_path, mmap_mode="r") if has_npr else None,
+        _load_array_to_ram(sem_path),
+        _load_array_to_ram(art_path),
+        _load_array_to_ram(label_path),
+        _load_array_to_ram(npr_path) if has_npr else None,
     )
 
 
@@ -282,8 +422,7 @@ def build_branch_feature_cache(
     feature_dim = int(model.fc.in_features)
 
     if not force and all(
-        os.path.exists(path)
-        for path in (feature_path, label_path, metadata_path)
+        os.path.exists(path) for path in (feature_path, label_path, metadata_path)
     ):
         with open(metadata_path, "r", encoding="utf-8") as handle:
             metadata = json.load(handle)
@@ -296,9 +435,8 @@ def build_branch_feature_cache(
         ):
             features = np.load(feature_path, mmap_mode="r")
             labels = np.load(label_path, mmap_mode="r")
-            if (
-                features.shape == (len(dataset), feature_dim)
-                and labels.shape == (len(dataset),)
+            if features.shape == (len(dataset), feature_dim) and labels.shape == (
+                len(dataset),
             ):
                 return BranchFeatureDataset(features, labels)
 
@@ -314,13 +452,16 @@ def build_branch_feature_cache(
         "dtype": "float16",
     }
     offset = 0
-    if not force and all(os.path.exists(path) for path in (
-        partial_feature_path, partial_label_path, progress_path
-    )):
+    if not force and all(
+        os.path.exists(path)
+        for path in (partial_feature_path, partial_label_path, progress_path)
+    ):
         try:
             with open(progress_path, "r", encoding="utf-8") as handle:
                 progress = json.load(handle)
-            if all(progress.get(key) == value for key, value in expected_progress.items()):
+            if all(
+                progress.get(key) == value for key, value in expected_progress.items()
+            ):
                 offset = max(0, min(int(progress.get("offset", 0)), len(dataset)))
         except (OSError, ValueError, TypeError):
             offset = 0
@@ -343,8 +484,7 @@ def build_branch_feature_cache(
 
     if branch == "semantic":
         encode_fn = (
-            getattr(model.clip, "encode_image", None)
-            or model.clip.get_image_features
+            getattr(model.clip, "encode_image", None) or model.clip.get_image_features
         )
     else:
         encode_fn = model.artifact_encoder
@@ -376,8 +516,11 @@ def build_branch_feature_cache(
             timing_start = torch.cuda.Event(enable_timing=True)
             timing_end = torch.cuda.Event(enable_timing=True)
             timing_start.record()
-        with torch.inference_mode(), torch.autocast(
-            device_type=device_type, dtype=amp_dtype, enabled=amp_enabled
+        with (
+            torch.inference_mode(),
+            torch.autocast(
+                device_type=device_type, dtype=amp_dtype, enabled=amp_enabled
+            ),
         ):
             features = encode_fn(images)
         if timing_end is not None:
@@ -401,17 +544,15 @@ def build_branch_feature_cache(
             )
 
     if offset != len(dataset):
-        raise RuntimeError(
-            f"Feature cache wrote {offset} of {len(dataset)} samples"
-        )
+        raise RuntimeError(f"Feature cache wrote {offset} of {len(dataset)} samples")
 
     feature_cache.flush()
     labels.flush()
     if device_type == "cuda":
         torch.cuda.synchronize(device)
-    forward_seconds = sum(
-        start.elapsed_time(end) for start, end in forward_events
-    ) / 1000
+    forward_seconds = (
+        sum(start.elapsed_time(end) for start, end in forward_events) / 1000
+    )
     elapsed = max(time.perf_counter() - cache_started, 1e-9)
     del feature_cache, labels
     os.replace(partial_feature_path, feature_path)
@@ -423,7 +564,8 @@ def build_branch_feature_cache(
     print(
         f"[FEATURE CACHE] {branch} {split}: {len(dataset) / elapsed:.1f} samples/s | "
         f"data wait {data_wait:.2f}s | {encoder_name} {forward_seconds:.2f}s | "
-        f"total {elapsed:.2f}s | precision={precision}", flush=True,
+        f"total {elapsed:.2f}s | precision={precision}",
+        flush=True,
     )
 
     if hasattr(dataset, "total_list"):
