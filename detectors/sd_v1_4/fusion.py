@@ -152,7 +152,12 @@ class CoSpyFusionDetector(BaseDetector):
                 param.requires_grad = False
 
         self.fc = torch.nn.Linear(2, num_classes)
-        feature_dims = [self.sem.fc.in_features, self.art.fc.in_features]
+        # Semantic stream contains the frozen CLIP embedding plus the
+        # already-trained semantic classifier logit.
+        feature_dims = [
+            self.sem.fc.in_features + self.sem.fc.out_features,
+            self.art.fc.in_features,
+        ]
         if self.npr is not None:
             feature_dims.append(self.npr.fc.in_features)
         self.fusion_head = (
@@ -254,10 +259,14 @@ class CoSpyFusionDetector(BaseDetector):
 
         batch_size, num_views = x_art.shape[:2]
         with torch.no_grad():
-            sem_feat = self.sem.clip.encode_image(x_sem)
-            flat_art = x_art.reshape(
-                batch_size * num_views, *x_art.shape[2:]
-            )
+            # Preserve the raw CLIP representation while also exposing the
+            # trained semantic classifier's score to adaptive fusion.  The
+            # semantic branch is frozen here, but its trained fc layer is now
+            # part of the feature path used by v2/v3 fusion.
+            sem_embedding = self.sem.clip.encode_image(x_sem)
+            sem_logit = self.sem.fc(sem_embedding)
+            sem_feat = torch.cat([sem_embedding, sem_logit], dim=1)
+            flat_art = x_art.reshape(batch_size * num_views, *x_art.shape[2:])
             art_feat = self.art.artifact_encoder(flat_art)
             art_feat = art_feat.reshape(batch_size, num_views, -1)
             npr_feat = None
@@ -280,7 +289,19 @@ class CoSpyFusionDetector(BaseDetector):
         sem_feat = sem_feat.float()
         art_feat = art_feat.float()
         npr_feat = npr_feat.float() if npr_feat is not None else None
-        sem_logit = self.sem.fc(sem_feat)
+
+        expected_sem_dim = self.sem.fc.in_features + self.sem.fc.out_features
+
+        if sem_feat.shape[1] != expected_sem_dim:
+            raise ValueError(
+                f"Expected semantic fusion features with {expected_sem_dim} dims "
+                f"(embedding={self.sem.fc.in_features} + "
+                f"logit={self.sem.fc.out_features}), "
+                f"got {sem_feat.shape[1]}"
+            )
+
+        # sem_feat already contains [semantic_embedding, semantic_logit]
+        sem_logit = sem_feat[:, -self.sem.fc.out_features :]
 
         view_logits = []
         last_fused = None
@@ -290,15 +311,10 @@ class CoSpyFusionDetector(BaseDetector):
                 if npr_feat is None:
                     raise ValueError("v3 fusion requires NPR features")
                 streams.append(npr_feat)
-            logits, info = self.fusion_head.forward_streams(
-                streams, return_info=True
-            )
+            logits, info = self.fusion_head.forward_streams(streams, return_info=True)
             # Keep the trained semantic probe in the final decision, while
             # using the adaptive regulator/dropout mask learned for its stream.
-            semantic_gate = (
-                info["coefficients"][:, 0:1]
-                * info["stream_masks"][:, 0:1]
-            )
+            semantic_gate = info["coefficients"][:, 0:1] * info["stream_masks"][:, 0:1]
             view_logits.append(logits + semantic_gate * sem_logit)
             last_fused = info["features"]
         out = torch.stack(view_logits, dim=1).mean(dim=1)

@@ -242,6 +242,10 @@ class Trainer:
                 f"|downscale={self.downscale_prob}"
                 f"|views={self.artifact_views}"
             )
+            if self.fusion_head != "v1":
+                # Invalidate caches created before semantic.fc was included
+                # in the adaptive-fusion semantic stream.
+                signature += "|semantic_feature_schema=clip_plus_trained_logit_v1"
             self.cache_key = hashlib.sha256(
                 signature.encode("utf-8")
             ).hexdigest()[:12]
