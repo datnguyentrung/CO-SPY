@@ -37,8 +37,9 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health() -> dict[str, object]:
+    # Khi model Original sẵn sàng, coi như hệ thống 'ok' để giao diện cho phép phân tích ảnh
     return {
-        "status": "ok" if runtime.ready else "loading" if runtime.loading else "degraded",
+        "status": "ok" if runtime.original_loaded else "loading" if runtime.loading else "degraded",
         "device": runtime.device.type,
         "original_loaded": runtime.original_loaded,
         "fusion_v3_loaded": runtime.fusion_v3_loaded,
