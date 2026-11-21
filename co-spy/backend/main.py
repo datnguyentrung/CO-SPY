@@ -37,9 +37,8 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health() -> dict[str, object]:
-    # Khi model Original sẵn sàng, coi như hệ thống 'ok' để giao diện cho phép phân tích ảnh
     return {
-        "status": "ok" if runtime.original_loaded else "loading" if runtime.loading else "degraded",
+        "status": "ok" if runtime.ready else "loading" if runtime.loading else "degraded",
         "device": runtime.device.type,
         "original_loaded": runtime.original_loaded,
         "fusion_v3_loaded": runtime.fusion_v3_loaded,
@@ -66,5 +65,12 @@ async def predict(image: UploadFile = File(...)) -> dict[str, object]:
     except RuntimeError as exc:
         LOGGER.exception("[PREDICT] inference runtime error for image=%s", image.filename)
         raise HTTPException(status_code=503, detail="Unable to analyze this image. Please try again.") from exc
-    LOGGER.info("[PREDICT] image=%s original=%s fusion_v3=%s", image.filename, result["original"]["prediction"], result["fusion_v3"]["prediction"])
+    LOGGER.info(
+        "[PREDICT] image=%s original=%s(%.4f) fusion_v3=%s(%.4f)",
+        image.filename,
+        result["original"]["prediction"],
+        result["original"]["ai_probability"],
+        result["fusion_v3"]["prediction"],
+        result["fusion_v3"]["ai_probability"],
+    )
     return result

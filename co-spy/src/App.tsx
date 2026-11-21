@@ -50,7 +50,8 @@ function ResultPanel({ architecture, device, loading, result, subtitle, title }:
         </div>
         {result && (
           <span className={`outcome ${isAi ? 'ai' : 'real'}`}>
-            {isAi ? 'AI generated' : 'Real image'}
+            <i className="outcome-indicator" aria-hidden="true" />
+            <span className="outcome-text">{isAi ? 'AI generated' : 'Real image'}</span>
           </span>
         )}
       </div>

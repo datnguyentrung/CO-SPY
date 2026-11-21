@@ -8,9 +8,7 @@ the detector classes already used by ``evaluate.py``.
 from __future__ import annotations
 
 import logging
-import os
 import sys
-import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -27,8 +25,6 @@ from backend.config import (
     ORIGINAL_CHECKPOINTS,
     PROJECT_ROOT,
 )
-from detectors.sd_v1_4.fusion import ArtifactViewTransform
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -76,6 +72,39 @@ def _model_state(payload: Any) -> dict[str, Any]:
     raise ValueError("Checkpoint has no recognizable model state")
 
 
+def _require_fusion_v3_state(state: dict[str, Any]) -> None:
+    """Reject checkpoints that cannot drive the adaptive v3 inference path."""
+    required_keys = {
+        "sem.fc.weight",
+        "sem.fc.bias",
+        "art.fc.weight",
+        "art.fc.bias",
+        "npr.fc.weight",
+        "npr.fc.bias",
+        "fusion_head.classifier.weight",
+        "fusion_head.classifier.bias",
+    }
+    missing = sorted(required_keys.difference(state))
+    if missing:
+        raise ValueError(
+            "Fusion v3 checkpoint is missing required weights: " + ", ".join(missing)
+        )
+
+    expected_features = (
+        int(state["sem.fc.weight"].shape[1])
+        + int(state["sem.fc.weight"].shape[0])
+        + int(state["art.fc.weight"].shape[1])
+        + int(state["npr.fc.weight"].shape[1])
+    )
+    classifier_features = int(state["fusion_head.classifier.weight"].shape[1])
+    if classifier_features != expected_features:
+        raise ValueError(
+            "Fusion v3 checkpoint has incompatible feature dimensions: "
+            f"classifier expects {classifier_features}, branches provide "
+            f"{expected_features}"
+        )
+
+
 class CoSpyRuntime:
     """Owns both model graphs for the FastAPI process lifetime."""
 
@@ -100,29 +129,21 @@ class CoSpyRuntime:
 
     @property
     def ready(self) -> bool:
-        # Cho phép hoạt động ngay khi ít nhất model Original đã nạp xong
-        return self.original_loaded
+        return self.original_loaded and self.fusion_v3_loaded
 
     def predict_both(self, image: Image.Image) -> dict[str, Any]:
-        if not self.original_loaded:
-            detail = self.errors.get("original") or "Models are still loading"
+        if not self.ready:
+            detail = (
+                self.errors.get("fusion_v3")
+                or self.errors.get("original")
+                or "Models are still loading"
+            )
             raise ModelUnavailableError(detail)
 
         with self._inference_lock:
             start_total = time.perf_counter()
             original_prediction = self._predict_original(image)
-            
-            # Nếu có Fusion v3 thì chạy, nếu chưa có thì tái sử dụng kết quả original kèm ghi chú
-            if self.fusion_v3_loaded:
-                fusion_prediction = self._predict_fusion_v3(image)
-            else:
-                fusion_prediction = Prediction(
-                    "CO-SPY Fusion v3 (Pending/Not Loaded)",
-                    original_prediction.ai_probability,
-                    original_prediction.processing_time_ms,
-                    original_prediction.raw_score,
-                )
-            
+            fusion_prediction = self._predict_fusion_v3(image)
             total_elapsed = round((time.perf_counter() - start_total) * 1000)
 
         return {
@@ -182,105 +203,107 @@ class CoSpyRuntime:
             self._require_files(FUSION_V3_CHECKPOINT)
             LOGGER.info("[MODEL] Loading Fusion v3...")
             from checkpoint_manager import load_torch_checkpoint
-            from detectors.sd_v1_4.fusion import CoSpyFusionDetector
-
-            ckpts = FUSION_V3_CHECKPOINT if isinstance(FUSION_V3_CHECKPOINT, dict) else {"fusion": FUSION_V3_CHECKPOINT}
-
-            npr_state: dict[str, Any] | None = None
-            for name, path in ckpts.items():
-                LOGGER.info("[MODEL] Loading %s checkpoint...", name)
-                payload = load_torch_checkpoint(path, map_location="cpu")
-                state = _model_state(payload)
-                if name == "npr":
-                    npr_state = state
-
-            # Nếu checkpoint tổng hợp chứa NPR hoặc có nhánh NPR
-            temporary_path = None
-            if npr_state is not None:
-                file_descriptor, temporary_path = tempfile.mkstemp(suffix=".pth")
-                os.close(file_descriptor)
-                torch.save(npr_state, temporary_path)
-
-            try:
-                # Nếu model Original đã nạp semantic, cho Fusion v3 dùng chung CLIP để tiết kiệm 4GB RAM
-                if self.original is not None and hasattr(self.original, "sem"):
-                    model = CoSpyFusionDetector.__new__(CoSpyFusionDetector)
-                    super(CoSpyFusionDetector, model).__init__()
-                    model.fusion_version = "v3" if npr_state is not None else "v1"
-                    model.num_classes = 1
-                    model.artifact_views = 1
-                    model.branch_dropout = 0.0
-                    model.sem = self.original.sem  # Chia sẻ chung nhánh semantic đã nạp
-                    from detectors.sd_v1_4.artifact import ArtifactDetector
-                    model.art = ArtifactDetector()
-                    model.art.load_weights(str(ORIGINAL_CHECKPOINTS["artifact"]))
-                    
-                    modules = [model.sem, model.art]
-                    model.npr = None
-                    if model.fusion_version == "v3" and temporary_path:
-                        from detectors.sd_v1_4.fusion import NPRDetector
-                        model.npr = NPRDetector()
-                        model.npr.load_weights(temporary_path)
-                        modules.append(model.npr)
-                    
-                    for m in modules:
-                        for p in m.parameters():
-                            p.requires_grad = False
-                            
-                    model.fc = torch.nn.Linear(2, 1)
-                    feature_dims = [model.sem.fc.in_features, model.art.fc.in_features]
-                    if model.npr is not None:
-                        feature_dims.append(model.npr.fc.in_features)
-                    from detectors.sd_v1_4.fusion import AdaptiveFusionHead
-                    model.fusion_head = AdaptiveFusionHead(feature_dims, num_classes=1, branch_dropout=0.0) if model.fusion_version != "v1" else None
-                    if model.fusion_head is not None:
-                        model.fc.requires_grad_(False)
-
-                    from torchvision import transforms
-                    model.sem_transform = transforms.Compose(
-                        [transforms.Normalize(model.sem.mean, model.sem.std)]
-                    )
-                    model.art_transform = transforms.Compose(
-                        [
-                            transforms.Resize(model.art.cropSize, antialias=False),
-                            transforms.Normalize(model.art.mean, model.art.std),
-                        ]
-                    )
-                    model.npr_transform = transforms.Compose(
-                        [
-                            transforms.Resize(224, antialias=False),
-                            transforms.Normalize([0.0] * 3, [1.0] * 3),
-                        ]
-                    )
-                    model.artifact_view_transform = lambda views: ArtifactViewTransform(
-                        model.art.cropSize,
-                        model.art.mean,
-                        model.art.std,
-                        num_views=views,
-                    )
-                    model._build_transforms()
-                else:
-                    model = CoSpyFusionDetector(
-                        semantic_weights_path=str(ORIGINAL_CHECKPOINTS["semantic"]),
-                        artifact_weights_path=str(ORIGINAL_CHECKPOINTS["artifact"]),
-                        npr_weights_path=temporary_path,
-                        fusion_version="v3" if npr_state is not None else "v1",
-                        semantic_pretrained_weights_path=LOCAL_OPENCLIP_WEIGHTS,
-                        semantic_pretrained_cache_dir=str(OPENCLIP_CACHE_DIR),
-                    )
-            finally:
-                if temporary_path:
-                    Path(temporary_path).unlink(missing_ok=True)
-
-            fusion_path = ckpts.get("fusion", FUSION_V3_CHECKPOINT if isinstance(FUSION_V3_CHECKPOINT, Path) else None)
-            if fusion_path and fusion_path.is_file():
-                fusion_payload = load_torch_checkpoint(fusion_path, map_location="cpu")
-                model.load_state_dict(_model_state(fusion_payload), strict=False)
+            fusion_path = (
+                FUSION_V3_CHECKPOINT.get("fusion")
+                if isinstance(FUSION_V3_CHECKPOINT, dict)
+                else FUSION_V3_CHECKPOINT
+            )
+            if fusion_path is None:
+                raise ValueError("Fusion v3 checkpoint configuration has no fusion file")
+            LOGGER.info("[MODEL] Loading checkpoint %s...", fusion_path)
+            payload = load_torch_checkpoint(fusion_path, map_location="cpu")
+            state = _model_state(payload)
+            _require_fusion_v3_state(state)
+            model = self._build_fusion_v3_model(state)
             self.fusion_v3 = model.to(self.device_fusion_v3).eval()
-            LOGGER.info("[MODEL] Fusion v3 ready on GPU (CUDA).")
+            LOGGER.info(
+                "[MODEL] Fusion v3 ready on %s with adaptive NPR fusion.",
+                self.device_fusion_v3.type.upper(),
+            )
         except Exception as exc:
             self.errors["fusion_v3"] = str(exc)
-            LOGGER.warning("[MODEL] Fusion v3 not available: %s", exc)
+            LOGGER.exception("[MODEL] Fusion v3 failed to load")
+
+    def _build_fusion_v3_model(self, state: dict[str, Any]) -> Any:
+        """Build v3 while sharing only the frozen CLIP backbone with Original."""
+        if self.original is None or not hasattr(self.original, "sem"):
+            raise ModelUnavailableError("CO-SPY Original must load before Fusion v3")
+
+        from detectors.sd_v1_4.artifact import ArtifactDetector
+        from detectors.sd_v1_4.fusion import AdaptiveFusionHead, CoSpyFusionDetector
+        from detectors.sd_v1_4.npr import NPRDetector
+        from detectors.sd_v1_4.semantic import SemanticDetector
+        from torchvision import transforms
+
+        sem = SemanticDetector.__new__(SemanticDetector)
+        torch.nn.Module.__init__(sem)
+        sem.clip = self.original.sem.clip
+        sem.fc = torch.nn.Linear(
+            int(state["sem.fc.weight"].shape[1]),
+            int(state["sem.fc.weight"].shape[0]),
+        )
+        sem.downscale_prob = 0.0
+        sem._build_transforms()
+
+        model = CoSpyFusionDetector.__new__(CoSpyFusionDetector)
+        torch.nn.Module.__init__(model)
+        model.fusion_version = "v3"
+        model.num_classes = 1
+        model.artifact_views = 1
+        model.branch_dropout = 0.0
+        model.sem = sem
+        model.art = ArtifactDetector()
+        model.npr = NPRDetector()
+        model.fc = torch.nn.Linear(2, 1)
+
+        feature_dims = [
+            model.sem.fc.in_features + model.sem.fc.out_features,
+            model.art.fc.in_features,
+            model.npr.fc.in_features,
+        ]
+        model.fusion_head = AdaptiveFusionHead(
+            feature_dims, num_classes=1, branch_dropout=0.0
+        )
+        model.fc.requires_grad_(False)
+        for module in (model.sem, model.art, model.npr):
+            module.requires_grad_(False)
+
+        model.sem_transform = transforms.Compose(
+            [transforms.Normalize(model.sem.mean, model.sem.std)]
+        )
+        model.art_transform = transforms.Compose(
+            [
+                transforms.Resize(model.art.cropSize, antialias=False),
+                transforms.Normalize(model.art.mean, model.art.std),
+            ]
+        )
+        model.npr_transform = transforms.Compose(
+            [
+                transforms.Resize(224, antialias=False),
+                transforms.Normalize([0.0] * 3, [1.0] * 3),
+            ]
+        )
+        model._build_transforms()
+
+        # The CLIP backbone is frozen during fusion training and shared with the
+        # Original detector. Load every v3-specific tensor without mutating that
+        # shared backbone, then explicitly verify that nothing else was skipped.
+        loadable_state = {
+            key: value for key, value in state.items() if not key.startswith("sem.clip.")
+        }
+        incompatible = model.load_state_dict(loadable_state, strict=False)
+        expected_missing = {
+            key for key in model.state_dict() if key.startswith("sem.clip.")
+        }
+        actual_missing = set(incompatible.missing_keys)
+        if actual_missing != expected_missing or incompatible.unexpected_keys:
+            unexpected = sorted(incompatible.unexpected_keys)
+            unaccounted_missing = sorted(actual_missing.difference(expected_missing))
+            raise ValueError(
+                "Fusion v3 checkpoint/model mismatch; "
+                f"missing={unaccounted_missing}, unexpected={unexpected}"
+            )
+        return model
 
     @staticmethod
     def _prepare_v1(model: Any, image: Image.Image) -> torch.Tensor:
@@ -315,20 +338,17 @@ class CoSpyRuntime:
 
     def _predict_fusion_v3(self, image: Image.Image) -> Prediction:
         assert self.fusion_v3 is not None
+        if self.fusion_v3.fusion_version != "v3":
+            raise RuntimeError("Fusion v3 runtime loaded a non-v3 model")
         started = time.perf_counter()
         with torch.inference_mode():
-            if self.fusion_v3.fusion_version == "v1":
-                # Ở chế độ v1, forward nhận tensor 4D từ test_transform
-                tensor = self._prepare_v1(self.fusion_v3, image).to(self.device_fusion_v3)
-                logits = self.fusion_v3(tensor)
-            else:
-                # Ở chế độ v3 (adaptive), forward nhận tensor đã qua transform của sem và art
-                semantic = self.fusion_v3.sem.test_transform(image).unsqueeze(0).to(self.device_fusion_v3)
-                # artifact views: shape (batch_size, views, channels, h, w)
-                artifact = self.fusion_v3.artifact_view_transform(self.fusion_v3.artifact_views)(image).unsqueeze(0).to(self.device_fusion_v3)
-                # Tự trích xuất đặc trưng và đưa qua forward_features
-                sem_feat, art_feat, npr_feat = self.fusion_v3.extract_features(semantic, artifact)
-                logits = self.fusion_v3.forward_features(sem_feat, art_feat, npr_feat)
+            semantic, artifact = self._prepare_v3(self.fusion_v3, image)
+            semantic = semantic.to(self.device_fusion_v3)
+            artifact = artifact.to(self.device_fusion_v3)
+            sem_feat, art_feat, npr_feat = self.fusion_v3.extract_features(
+                semantic, artifact
+            )
+            logits = self.fusion_v3.forward_features(sem_feat, art_feat, npr_feat)
             probability = logits.sigmoid().flatten()[0].item()
             raw_score = logits.flatten()[0].item()
         return Prediction(
