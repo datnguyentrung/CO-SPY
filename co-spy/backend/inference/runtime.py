@@ -53,6 +53,12 @@ class Prediction:
         }
 
 
+def _prediction_from_logits(model_name: str, logits: torch.Tensor) -> Prediction:
+    """Convert one binary branch logit into the public prediction shape."""
+    raw_score = logits.flatten()[0].item()
+    return Prediction(model_name, logits.sigmoid().flatten()[0].item(), 0, raw_score)
+
+
 def _model_state(payload: Any) -> dict[str, Any]:
     """Extract a model state dict from plain weights or CheckpointManager bundles."""
     if not isinstance(payload, dict):
@@ -143,12 +149,18 @@ class CoSpyRuntime:
         with self._inference_lock:
             start_total = time.perf_counter()
             original_prediction = self._predict_original(image)
-            fusion_prediction = self._predict_fusion_v3(image)
+            fusion_prediction, fusion_branches = self._predict_fusion_v3(image)
             total_elapsed = round((time.perf_counter() - start_total) * 1000)
 
         return {
             "original": original_prediction.as_dict(),
-            "fusion_v3": fusion_prediction.as_dict(),
+            "fusion_v3": {
+                **fusion_prediction.as_dict(),
+                "branches": {
+                    name: prediction.as_dict()
+                    for name, prediction in fusion_branches.items()
+                },
+            },
             "total_processing_time_ms": total_elapsed,
             "device": self.device.type,
         }
@@ -336,7 +348,9 @@ class CoSpyRuntime:
             raw_score,
         )
 
-    def _predict_fusion_v3(self, image: Image.Image) -> Prediction:
+    def _predict_fusion_v3(
+        self, image: Image.Image
+    ) -> tuple[Prediction, dict[str, Prediction]]:
         assert self.fusion_v3 is not None
         if self.fusion_v3.fusion_version != "v3":
             raise RuntimeError("Fusion v3 runtime loaded a non-v3 model")
@@ -349,13 +363,21 @@ class CoSpyRuntime:
                 semantic, artifact
             )
             logits = self.fusion_v3.forward_features(sem_feat, art_feat, npr_feat)
+            semantic_logits = sem_feat[:, -self.fusion_v3.sem.fc.out_features :]
+            artifact_logits = self.fusion_v3.art.fc(art_feat).mean(dim=1)
+            if npr_feat is None:
+                raise RuntimeError("Fusion v3 inference did not produce NPR features")
+            npr_logits = self.fusion_v3.npr.fc(npr_feat)
             probability = logits.sigmoid().flatten()[0].item()
             raw_score = logits.flatten()[0].item()
-        return Prediction(
-            "CO-SPY Fusion v3",
-            probability,
-            round((time.perf_counter() - started) * 1000),
-            raw_score,
+        elapsed = round((time.perf_counter() - started) * 1000)
+        return (
+            Prediction("CO-SPY Fusion v3", probability, elapsed, raw_score),
+            {
+                "semantic": _prediction_from_logits("Semantic", semantic_logits),
+                "artifact": _prediction_from_logits("Artifact-VAE", artifact_logits),
+                "npr": _prediction_from_logits("NPR", npr_logits),
+            },
         )
 
 

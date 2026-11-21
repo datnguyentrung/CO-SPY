@@ -17,27 +17,37 @@ type ModelResult = {
   raw_score: number
 }
 
+type FusionBranches = {
+  semantic: ModelResult
+  artifact: ModelResult
+  npr: ModelResult
+}
+
 type Prediction = {
   original: ModelResult
-  fusion_v3: ModelResult
+  fusion_v3: ModelResult & { branches?: FusionBranches }
   total_processing_time_ms: number
   device: string
 }
 
 type ResultPanelProps = {
   architecture: string
-  device?: string
+  branches?: FusionBranches
   loading: boolean
   result?: ModelResult
   subtitle: string
   title: string
 }
 
+type BranchResultProps = {
+  label: string
+  result: ModelResult
+}
+
 const imageTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const percent = (value: number) => `${(value * 100).toFixed(2)}%`
 
-function ResultPanel({ architecture, device, loading, result, subtitle, title }: ResultPanelProps) {
-  const [expanded, setExpanded] = useState(false)
+function ResultPanel({ architecture, branches, loading, result, subtitle, title }: ResultPanelProps) {
   const isAi = result?.prediction === 'AI_GENERATED'
 
   return (
@@ -93,15 +103,18 @@ function ResultPanel({ architecture, device, loading, result, subtitle, title }:
             </div>
           </dl>
 
-          <button className="details" type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
-            Technical details
-            <span>{expanded ? '−' : '+'}</span>
-          </button>
-          {expanded && (
-            <dl className="technical">
-              <div><dt>Device</dt><dd>{device?.toUpperCase()}</dd></div>
-              <div><dt>Raw score</dt><dd>{result.raw_score.toFixed(4)}</dd></div>
-            </dl>
+          {branches && (
+            <section className="branch-signals" aria-label="Fusion v3 branch signals">
+              <div className="branch-signals-heading">
+                <h3>Branch signals</h3>
+                <p>Independent predictions, not fusion weights.</p>
+              </div>
+              <div className="branch-grid">
+                <BranchResult label="Semantic" result={branches.semantic} />
+                <BranchResult label="Artifact-VAE" result={branches.artifact} />
+                <BranchResult label="NPR" result={branches.npr} />
+              </div>
+            </section>
           )}
         </div>
       ) : (
@@ -110,6 +123,33 @@ function ResultPanel({ architecture, device, loading, result, subtitle, title }:
           <p>The live prediction and probabilities will appear here.</p>
         </div>
       )}
+    </article>
+  )
+}
+
+function BranchResult({ label, result }: BranchResultProps) {
+  const isAi = result.prediction === 'AI_GENERATED'
+
+  return (
+    <article className="branch-result">
+      <div className="branch-heading">
+        <h3>{label}</h3>
+        <span className={`branch-outcome ${isAi ? 'ai' : 'real'}`}>
+          {isAi ? 'AI generated' : 'Real image'}
+        </span>
+      </div>
+      <strong>{percent(result.confidence)}</strong>
+      <div
+        className="probability-bar branch-probability-bar"
+        aria-label={`${label}: Real ${percent(result.real_probability)}, AI generated ${percent(result.ai_probability)}`}
+      >
+        <span className="real-segment" style={{ width: percent(result.real_probability) }} />
+        <span className="ai-segment" style={{ width: percent(result.ai_probability) }} />
+      </div>
+      <div className="branch-probabilities">
+        <span>Real {percent(result.real_probability)}</span>
+        <span>AI {percent(result.ai_probability)}</span>
+      </div>
     </article>
   )
 }
@@ -295,15 +335,14 @@ export default function App() {
               architecture="Semantic + Artifact + Fusion"
               result={prediction?.original}
               loading={loading}
-              device={prediction?.device}
             />
             <ResultPanel
               title="CO-SPY Fusion v3"
               subtitle="Model sau cải tiến"
               architecture="Semantic + Artifact + NPR + Fusion v3"
               result={prediction?.fusion_v3}
+              branches={prediction?.fusion_v3.branches}
               loading={loading}
-              device={prediction?.device}
             />
           </section>
         </section>

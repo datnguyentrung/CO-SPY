@@ -11,7 +11,11 @@ APP_ROOT = Path(__file__).resolve().parent / "co-spy"
 if str(APP_ROOT) not in sys.path:
     sys.path.insert(0, str(APP_ROOT))
 
-from backend.inference.runtime import Prediction, _require_fusion_v3_state
+from backend.inference.runtime import (
+    Prediction,
+    _prediction_from_logits,
+    _require_fusion_v3_state,
+)
 
 
 def _valid_v3_state() -> dict[str, torch.Tensor]:
@@ -52,3 +56,12 @@ def test_prediction_can_return_real() -> None:
 
     assert result["prediction"] == "REAL"
     assert result["real_probability"] == pytest.approx(0.8)
+
+
+def test_branch_logit_is_exposed_as_an_ai_real_prediction() -> None:
+    result = _prediction_from_logits("NPR", torch.tensor([[2.0]])).as_dict()
+
+    assert result["model_name"] == "NPR"
+    assert result["prediction"] == "AI_GENERATED"
+    assert result["ai_probability"] == pytest.approx(0.880797, abs=1e-6)
+    assert result["real_probability"] == pytest.approx(0.119203, abs=1e-6)
