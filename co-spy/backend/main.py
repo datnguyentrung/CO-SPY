@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from backend.config import ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES
 from backend.inference import CoSpyRuntime, ModelUnavailableError
@@ -54,7 +54,7 @@ async def predict(image: UploadFile = File(...)) -> dict[str, object]:
     if not content or len(content) > MAX_IMAGE_BYTES:
         raise HTTPException(status_code=413, detail="Image must be between 1 byte and 15 MB.")
     try:
-        pil_image = Image.open(io.BytesIO(content)).convert("RGB")
+        pil_image = ImageOps.exif_transpose(Image.open(io.BytesIO(content))).convert("RGB")
         pil_image.load()
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         raise HTTPException(status_code=422, detail="Unable to read this image.") from exc

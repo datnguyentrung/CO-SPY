@@ -12,7 +12,9 @@ if str(APP_ROOT) not in sys.path:
     sys.path.insert(0, str(APP_ROOT))
 
 from backend.inference.runtime import (
+    NPR_GUARD_AI_THRESHOLD,
     Prediction,
+    _apply_npr_guard,
     _prediction_from_logits,
     _require_fusion_v3_state,
 )
@@ -65,3 +67,33 @@ def test_branch_logit_is_exposed_as_an_ai_real_prediction() -> None:
     assert result["prediction"] == "AI_GENERATED"
     assert result["ai_probability"] == pytest.approx(0.880797, abs=1e-6)
     assert result["real_probability"] == pytest.approx(0.119203, abs=1e-6)
+
+
+def test_npr_guard_requires_consistent_high_ai_evidence() -> None:
+    fusion = Prediction("CO-SPY Fusion v3", 0.1, 42, -2.1972)
+    guarded, forensic = _apply_npr_guard(
+        fusion,
+        {
+            "center": Prediction("NPR", 0.99, 0, 4.595),
+            "high_frequency": Prediction("NPR", 0.96, 0, 3.178),
+        },
+    )
+
+    assert forensic["npr_guard_applied"] is True
+    assert forensic["npr_guard_threshold"] == NPR_GUARD_AI_THRESHOLD
+    assert guarded.ai_probability == pytest.approx(0.96)
+    assert guarded.processing_time_ms == 42
+
+
+def test_npr_guard_preserves_fusion_when_one_view_is_below_threshold() -> None:
+    fusion = Prediction("CO-SPY Fusion v3", 0.1, 42, -2.1972)
+    guarded, forensic = _apply_npr_guard(
+        fusion,
+        {
+            "center": Prediction("NPR", 0.99, 0, 4.595),
+            "high_frequency": Prediction("NPR", 0.94, 0, 2.752),
+        },
+    )
+
+    assert forensic["npr_guard_applied"] is False
+    assert guarded == fusion

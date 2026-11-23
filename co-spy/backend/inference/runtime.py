@@ -26,6 +26,8 @@ from backend.config import (
     PROJECT_ROOT,
 )
 LOGGER = logging.getLogger(__name__)
+FORENSIC_VIEW_NAMES = ("center", "high_frequency")
+NPR_GUARD_AI_THRESHOLD = 0.95
 
 
 class ModelUnavailableError(RuntimeError):
@@ -57,6 +59,35 @@ def _prediction_from_logits(model_name: str, logits: torch.Tensor) -> Prediction
     """Convert one binary branch logit into the public prediction shape."""
     raw_score = logits.flatten()[0].item()
     return Prediction(model_name, logits.sigmoid().flatten()[0].item(), 0, raw_score)
+
+
+def _apply_npr_guard(
+    fusion_prediction: Prediction, npr_by_view: dict[str, Prediction]
+) -> tuple[Prediction, dict[str, Any]]:
+    """Escalate only when every forensic view independently flags AI."""
+    npr_ai_probabilities = {
+        view: prediction.ai_probability for view, prediction in npr_by_view.items()
+    }
+    minimum_npr_ai_probability = min(npr_ai_probabilities.values())
+    applied = minimum_npr_ai_probability >= NPR_GUARD_AI_THRESHOLD
+    metadata = {
+        "views": list(FORENSIC_VIEW_NAMES),
+        "npr_ai_probabilities": npr_ai_probabilities,
+        "npr_guard_threshold": NPR_GUARD_AI_THRESHOLD,
+        "npr_guard_applied": applied,
+        "model_prediction": fusion_prediction.as_dict(),
+    }
+    if not applied:
+        return fusion_prediction, metadata
+    return (
+        Prediction(
+            fusion_prediction.model_name,
+            minimum_npr_ai_probability,
+            fusion_prediction.processing_time_ms,
+            fusion_prediction.raw_score,
+        ),
+        metadata,
+    )
 
 
 def _model_state(payload: Any) -> dict[str, Any]:
@@ -149,7 +180,7 @@ class CoSpyRuntime:
         with self._inference_lock:
             start_total = time.perf_counter()
             original_prediction = self._predict_original(image)
-            fusion_prediction, fusion_branches = self._predict_fusion_v3(image)
+            fusion_prediction, fusion_branches, forensic = self._predict_fusion_v3(image)
             total_elapsed = round((time.perf_counter() - start_total) * 1000)
 
         return {
@@ -160,6 +191,7 @@ class CoSpyRuntime:
                     name: prediction.as_dict()
                     for name, prediction in fusion_branches.items()
                 },
+                "forensic": forensic,
             },
             "total_processing_time_ms": total_elapsed,
             "device": self.device.type,
@@ -261,7 +293,9 @@ class CoSpyRuntime:
         torch.nn.Module.__init__(model)
         model.fusion_version = "v3"
         model.num_classes = 1
-        model.artifact_views = 1
+        # Evaluate both the center crop and the crop with the strongest local
+        # high-frequency energy. This leaves the semantic image untouched.
+        model.artifact_views = len(FORENSIC_VIEW_NAMES)
         model.branch_dropout = 0.0
         model.sem = sem
         model.art = ArtifactDetector()
@@ -350,7 +384,7 @@ class CoSpyRuntime:
 
     def _predict_fusion_v3(
         self, image: Image.Image
-    ) -> tuple[Prediction, dict[str, Prediction]]:
+    ) -> tuple[Prediction, dict[str, Prediction], dict[str, Any]]:
         assert self.fusion_v3 is not None
         if self.fusion_v3.fusion_version != "v3":
             raise RuntimeError("Fusion v3 runtime loaded a non-v3 model")
@@ -359,25 +393,75 @@ class CoSpyRuntime:
             semantic, artifact = self._prepare_v3(self.fusion_v3, image)
             semantic = semantic.to(self.device_fusion_v3)
             artifact = artifact.to(self.device_fusion_v3)
-            sem_feat, art_feat, npr_feat = self.fusion_v3.extract_features(
-                semantic, artifact
+            sem_feat, art_feat, _ = self.fusion_v3.extract_features(
+                semantic, artifact, include_npr=False
             )
-            logits = self.fusion_v3.forward_features(sem_feat, art_feat, npr_feat)
             semantic_logits = sem_feat[:, -self.fusion_v3.sem.fc.out_features :]
-            artifact_logits = self.fusion_v3.art.fc(art_feat).mean(dim=1)
-            if npr_feat is None:
-                raise RuntimeError("Fusion v3 inference did not produce NPR features")
-            npr_logits = self.fusion_v3.npr.fc(npr_feat)
-            probability = logits.sigmoid().flatten()[0].item()
-            raw_score = logits.flatten()[0].item()
+            batch_size, num_views = art_feat.shape[:2]
+            if num_views != len(FORENSIC_VIEW_NAMES):
+                raise RuntimeError("Fusion v3 did not produce the expected forensic views")
+
+            flat_artifact = artifact.reshape(
+                batch_size * num_views, *artifact.shape[2:]
+            )
+            npr_input = self.fusion_v3.npr_transform(flat_artifact)
+            npr_feat = self.fusion_v3.npr.artifact_encoder(npr_input).reshape(
+                batch_size, num_views, -1
+            )
+
+            fusion_by_view: dict[str, Prediction] = {}
+            artifact_by_view: dict[str, Prediction] = {}
+            npr_by_view: dict[str, Prediction] = {}
+            for view_index, view_name in enumerate(FORENSIC_VIEW_NAMES):
+                view_artifact = art_feat[:, view_index : view_index + 1]
+                view_npr = npr_feat[:, view_index]
+                view_logits = self.fusion_v3.forward_features(
+                    sem_feat, view_artifact, view_npr
+                )
+                fusion_by_view[view_name] = _prediction_from_logits(
+                    f"CO-SPY Fusion v3 ({view_name})", view_logits
+                )
+                artifact_by_view[view_name] = _prediction_from_logits(
+                    "Artifact-VAE", self.fusion_v3.art.fc(view_artifact)
+                )
+                npr_by_view[view_name] = _prediction_from_logits(
+                    "NPR", self.fusion_v3.npr.fc(view_npr)
+                )
+
+            selected_view = max(
+                fusion_by_view, key=lambda view: fusion_by_view[view].ai_probability
+            )
+            selected_fusion = fusion_by_view[selected_view]
+            fusion_prediction, forensic = _apply_npr_guard(
+                Prediction(
+                    "CO-SPY Fusion v3",
+                    selected_fusion.ai_probability,
+                    0,
+                    selected_fusion.raw_score,
+                ),
+                npr_by_view,
+            )
+            forensic["selected_fusion_view"] = selected_view
         elapsed = round((time.perf_counter() - started) * 1000)
+        fusion_prediction = Prediction(
+            fusion_prediction.model_name,
+            fusion_prediction.ai_probability,
+            elapsed,
+            fusion_prediction.raw_score,
+        )
+        forensic["model_prediction"]["processing_time_ms"] = elapsed
         return (
-            Prediction("CO-SPY Fusion v3", probability, elapsed, raw_score),
+            fusion_prediction,
             {
                 "semantic": _prediction_from_logits("Semantic", semantic_logits),
-                "artifact": _prediction_from_logits("Artifact-VAE", artifact_logits),
-                "npr": _prediction_from_logits("NPR", npr_logits),
+                "artifact": max(
+                    artifact_by_view.values(), key=lambda prediction: prediction.ai_probability
+                ),
+                "npr": max(
+                    npr_by_view.values(), key=lambda prediction: prediction.ai_probability
+                ),
             },
+            forensic,
         )
 
 
